@@ -35,6 +35,7 @@
 	"guider_flip_y": false,
 	"data_directory": "H:/Observatory Files/Observing Sessions/",
 	"calibration_time": "end",
-	"calibration_num": 10
+	"calibration_num": 10,
+	"default_camera": "CCD"
 	}
 }
