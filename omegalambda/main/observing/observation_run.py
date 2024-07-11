@@ -18,6 +18,7 @@ from ..controller.dome import Dome
 from ..controller.focuser_control import Focuser
 from ..controller.focuser_procedures import FocusProcedures
 from ..controller.flatfield_lamp import FlatLamp
+from ..controller.tertiary_mirror import TertiaryMirror
 
 from ..controller.thread_monitor import Monitor
 from ..controller.focuser_gui import Gui
@@ -70,6 +71,7 @@ class ObservationRun:
         self.focuser = Focuser()
         self.conditions = Conditions(plot_lock=self.plot_lock)
         self.flatlamp = FlatLamp()
+        self.tertiary_mirror = TertiaryMirror()
 
 
         # Initializes higher level structures - focuser, guider, and calibration
@@ -92,14 +94,15 @@ class ObservationRun:
         self.dome.start()
         self.focus_procedures.start()
         self.flatlamp.start()
+        self.tertiary_mirror.start()
         self.calibration.start()
         self.guider.start()
 
 
         self.th_dict = {'camera': self.camera, 'telescope': self.telescope,
                         'dome': self.dome, 'focuser': self.focuser, 'flatlamp': self.flatlamp,
-                        'conditions': self.conditions, 'guider': self.guider,
-                        'focus_procedures': self.focus_procedures, 'gui': self.gui
+                        'tertiary_mirror': self.tertiary_mirror, 'conditions': self.conditions, 
+                        'guider': self.guider, 'focus_procedures': self.focus_procedures, 'gui': self.gui
                         }
         self.monitor = Monitor(self.th_dict)
         self.monitor.start()
@@ -123,7 +126,8 @@ class ObservationRun:
             'Camera': self.camera,
             'Telescope': self.telescope,
             'Dome': self.dome,
-            'FlatLamp': self.flatlamp
+            'FlatLamp': self.flatlamp,
+            "TertiaryMirror": self.tertiary_mirror
         }
         message = ''
         for key, value in connections.items():
@@ -526,6 +530,13 @@ class ObservationRun:
 
         ticket.exp_time = [ticket.exp_time] if type(ticket.exp_time) in (int, float) else ticket.exp_time
         ticket.filter = [ticket.filter] if type(ticket.filter) is str else ticket.filter
+
+        if ticket.camera:
+            self.tertiary_mirror.select_camera(ticket.camera)
+        else:
+            logging.warning("No camera specified in the observation ticket.  Using default camera.")
+            self.tertiary_mirror.select_camera(self.config_dict.default_camera)
+
         if ticket.self_guide:
             self.guider.onThread(self.guider.guiding_procedure, self.image_directories[ticket])
         header_info = self.get_general_header_info(ticket)
@@ -809,6 +820,7 @@ class ObservationRun:
         self.dome.onThread(self.dome.disconnect)
         self.focuser.onThread(self.focuser.disconnect)
         self.flatlamp.onThread(self.flatlamp.disconnect)
+        self.tertiary_mirror.onThread(self.tertiary_mirror.disconnect)
 
         self.monitor.run_th_monitor.clear()                 #Have to stop this first otherwise it will restart everything
         self.conditions.stop.set()
@@ -821,6 +833,7 @@ class ObservationRun:
         self.focus_procedures.stop()
         self.guider.stop()
         self.flatlamp.onThread(self.flatlamp.stop)
+        self.tertiary_mirror.onThread(self.tertiary_mirror.stop)
         self.calibration.onThread(self.calibration.stop)
         self.gui.close_window.set()
         logging.debug(' Shutting down thread monitor. Number of thread restarts: {}'.format(self.monitor.n_restarts))
@@ -939,6 +952,11 @@ class ObservationRun:
             self.flatlamp.start()
             self.monitor.n_restarts['flatlamp'] += 1
             self.monitor.threadlist['flatlamp'] = self.flatlamp
+        elif thname == 'tertiary_mirror':
+            self.tertiary_mirror = TertiaryMirror()
+            self.tertiary_mirror.start()
+            self.monitor.n_restarts['tertiary_mirror'] += 1
+            self.monitor.threadlist['tertiary_mirror'] = self.tertiary_mirror
         elif thname == 'conditions':
             self.conditions = Conditions(self.plot_lock)
             self.conditions.start()

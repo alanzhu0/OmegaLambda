@@ -10,9 +10,9 @@ class Monitor(threading.Thread):
         self.run_th_monitor = threading.Event()
         self.run_th_monitor.set()
         self.crashed = []
-        self.n_restarts = {'camera': 0, 'telescope': 0,'dome': 0, 'focuser': 0,
-                           'flatlamp': 0,'conditions': 0, 'guider': 0,
-                           'focus_procedures': 0, 'gui': 0
+        self.n_restarts = {'camera': 0, 'telescope': 0, 'dome': 0, 'focuser': 0,
+                           'flatlamp': 0, 'tertiary_mirror': 0, 'conditions': 0, 
+                           'guider': 0, 'focus_procedures': 0, 'gui': 0
                            }
         self.telescope_coords_check = True
         self.skip_telescope_check = False

@@ -37,6 +37,7 @@ class Hardware(threading.Thread):
         self.Telescope = None
         self.Dome = None
         self.Focuser = None
+        self.TertiaryMirror = None
         self.ser = None
         super(Hardware, self).__init__(name=self.label + '-Th', daemon=True)       # Called threading.Thread.__init__
 

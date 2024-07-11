@@ -28,7 +28,7 @@ class Config:
                  guiding_threshold: Optional[float] = None, guider_ra_dampening: Optional[float] = None,
                  guider_dec_dampening: Optional[float] = None, guider_max_move: Optional[float] = None,
                  guider_angle: Optional[float] = None, guider_flip_y: Optional[bool] = None, data_directory: Optional[str] = None,
-                 calibration_time: Optional[str] = None, calibration_num: Optional[int] = None):
+                 calibration_time: Optional[str] = None, calibration_num: Optional[int] = None, default_camera: Optional[str] = None):
         """
 
         Parameters
@@ -128,6 +128,8 @@ class Config:
             The number of darks and flats that should be taken per target.  Note that there will be one set of flats
             with this number of exposures, but two sets of darks, each with this number of exposures: one to match
             the flat exposure time and the other to match the science exposure time.  Our default is 10.
+        default_camera : STR, optional
+            The default camera to use for imaging. One of "CCD" or "NIR".
 
         Returns
         -------
@@ -210,6 +212,7 @@ class Config:
         self.data_directory = data_directory                     
         self.calibration_time = calibration_time
         self.calibration_num: int = calibration_num
+        self.default_camera = default_camera
         self.verify()
 
     def verify(self):
@@ -250,6 +253,8 @@ class Config:
         assert type(self.data_directory) is str
         assert self.calibration_time in ("start", "end")
         assert self.calibration_num >= 0
+        assert type(self.default_camera) is str
+        assert self.default_camera in ("CCD", "NIR")
         
     @staticmethod
     def deserialized(text: str):
@@ -318,7 +323,7 @@ def _dict_to_config_object(dic: Dict) -> Config:
                      guider_ra_dampening=dic['guider_ra_dampening'], guider_dec_dampening=dic['guider_dec_dampening'],
                      guider_max_move=dic['guider_max_move'], guider_angle=dic['guider_angle'], guider_flip_y=dic['guider_flip_y'],
                      data_directory=dic['data_directory'], calibration_time=dic['calibration_time'],
-                     calibration_num=dic['calibration_num'])
+                     calibration_num=dic['calibration_num'], default_camera=dic['default_camera'])
     logging.info('Global config object has been created')
     return _config
 
