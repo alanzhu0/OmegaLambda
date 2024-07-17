@@ -31,6 +31,7 @@ def box_labels():
     tk.Label(master, text='Filter(s)').grid(row=7)
     tk.Label(master, text='Number of Exposures').grid(row=8)
     tk.Label(master, text='Exposure Time(s)').grid(row=9)
+    tk.Label(master, text='Camera').grid(row=10)
 
 
 def exampletxt():
@@ -49,9 +50,10 @@ def exampletxt():
     tk.Label(master, text='Can be single filter or list. (clr, uv, b, v, r, ir, Ha)').grid(row=7, column=2)
     tk.Label(master, text='Number of science exposures to be taken').grid(row=8, column=2)
     tk.Label(master, text='Exposure time in seconds for each science image').grid(row=9, column=2)
-    tk.Label(master, text='Enable self guiding').grid(row=10, column=2)
-    tk.Label(master, text='Enable 3rd party guiding').grid(row=11, column=2)
-    tk.Label(master, text='Cycle filter after each science image').grid(row=12, column=2)
+    tk.Label(master, text="Camera to be used for observation: CCD or NIR").grid(row=10, column=2)
+    tk.Label(master, text='Enable self guiding').grid(row=11, column=2)
+    tk.Label(master, text='Enable 3rd party guiding').grid(row=12, column=2)
+    tk.Label(master, text='Cycle filter after each science image').grid(row=13, column=2)
 
 
 def quit_func():
@@ -106,8 +108,6 @@ def check_toi():
         tk.Label(master, text='No target specified for tonight', font=('Courier', 12)).grid(row=0, column=1)
 
 
-
-
 class DialogThread(Thread):
     def __init__(self, title, message):
         self.title = title
@@ -160,6 +160,10 @@ def target_grab():
                 obs_end = str(google_sheet['End'][x])
                 filter_input = str(google_sheet['Filter'][x])
                 exposure = str(google_sheet['Exp'][x])
+                if "Camera" in google_sheet.columns:
+                    selected_cam = str(google_sheet['Camera'][x])
+                else:
+                    selected_cam = "CCD"
 
         toi = target_toi.split(' ')[1]
         info_chart_path = os.path.abspath(os.path.join(info_directory, 'info_chart.csv'))
@@ -207,7 +211,8 @@ def target_grab():
         end_time.insert(10, str(end))
         filter_.insert(10, str(filter_input))
         n_exposures.insert(10, str(num_exposures))
-        exposure_time.insert(10, str(exposure))        
+        exposure_time.insert(10, str(exposure))
+        camera.set(selected_cam)   
 
 def create_list():
     '''
@@ -327,6 +332,7 @@ def savetxt():
         f.write('\n\t\"filter\": {},'.format(i))
         f.write('\n\t\"num\": {},'.format(n_exposures.get()))
         f.write('\n\t\"exp_time\": {},'.format(j))
+        f.write('\n\t"camera": \"{}\",'.format(camera.get()))
         f.write('\n\t\"self_guide\": {},'.format(self_guide_var))
         f.write('\n\t\"guide\": {},'.format(guide_var))
         f.write('\n\t\"cycle_filter\": {}'.format(cycle_filter_var))
@@ -336,16 +342,24 @@ def savetxt():
 master = tk.Tk()
 # Creates window
 master.title('Observation Ticket Creator')
-master.geometry('800x380')
+master.geometry('1000x500')
 
 box_labels()
 exampletxt()
 check_toi()
 toi_list = create_list()
 
+if not toi_list:
+    tk.Label(master, text='No targets found!', font=("Courier 18 bold")).grid(row=14, column=1)
+    master.mainloop()
+    exit()
+
 # Creates and places dropdown menu
 selection = tk.StringVar()
 obs_list = tk.OptionMenu(master, selection, *toi_list).grid(row=1, column=1)
+
+camera = tk.StringVar()
+camera_list = tk.OptionMenu(master, camera, 'CCD', 'NIR').grid(row=10, column=1)
 
 # Creates the input text boxes
 name = tk.Entry(master)
@@ -357,14 +371,9 @@ filter_ = tk.Entry(master)
 n_exposures = tk.Entry(master)
 exposure_time = tk.Entry(master)
 
-
-if not toi_list:
-    toi_list = ['No targets found!']   
-    selection.set('Observation List')
-else:
-    selection.set(toi_list[0])
-    toi_list.insert(0, 'Observation List')
-    target_grab()
+selection.set(toi_list[0])
+toi_list.insert(0, 'Observation List')
+target_grab()
 
 # Creates variables for check buttons
 self_guide = tk.IntVar()
@@ -374,11 +383,11 @@ cycle_filter = tk.IntVar()
 # Creates check buttons
 self_guide.set(1)
 b1 = tk.Checkbutton(master, text='Self Guide', onvalue=1, offvalue=0, variable=self_guide)
-b1.grid(row=10, column=1)
+b1.grid(row=11, column=1)
 b2 = tk.Checkbutton(master, text='Guide', onvalue=1, offvalue=0, variable=guide)
-b2.grid(row=11, column=1)
+b2.grid(row=12, column=1)
 b3 = tk.Checkbutton(master, text='Cycle Filter', onvalue=1, offvalue=0, variable=cycle_filter)
-b3.grid(row=12, column=1)
+b3.grid(row=13, column=1)
 
 # Places text boxes in the window
 name.grid(row=2, column=1)
@@ -398,9 +407,9 @@ apply = tk.Button(master, text='Apply', command=savetxt)
 clear = tk.Button(master, text='Clear', command=clear_box)
 
 # Places the buttons in the window
-quit_.place(x=220, y=350)
-apply.place(x=255, y=350)
-clear.place(x=298, y=350)
-select.place(x=350, y=23)
+quit_.place(x=200, y=450)
+apply.place(x=270, y=450)
+clear.place(x=350, y=450)
+select.place(x=500, y=23)
 
 master.mainloop()
