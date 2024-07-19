@@ -12,7 +12,8 @@ class ObservationTicket:
                  dec: Optional[Union[str, float, int]] = None, start_time: Optional[str] = None,
                  end_time: Optional[str] = None, _filter: Optional[Union[str, List[str]]] = None,
                  num: Optional[int] = None, exp_time: Optional[Union[float, int, List[Union[float, int]]]] = None,
-                 self_guide: Optional[bool] = None, guide: Optional[bool] = None, cycle_filter: Optional[bool] = None):
+                 camera: Optional[str] = None, self_guide: Optional[bool] = None, guide: Optional[bool] = None, 
+                 cycle_filter: Optional[bool] = None):
         """
 
         Parameters
@@ -34,6 +35,8 @@ class ObservationTicket:
             Number of exposures. The default is None.
         exp_time : FLOAT or LIST, optional
             Exposure time of each image in seconds.  List order must match the order of filters.  The default is None.
+        camera : STR, optional
+            Camera to be used for imaging. The default is None.
         self_guide : BOOL, optional
            If True, self-guiding module will activate, keeping the telescope
            pointed steady at the same target with minor adjustments. The default is None.
@@ -83,6 +86,7 @@ class ObservationTicket:
         self.filter: Union[str, List[str]] = _filter
         self.num: int = num
         self.exp_time: Union[float, int, List[Union[float, int]]] = exp_time
+        self.camera: str = camera
         self.self_guide: bool = self_guide
         self.guide: bool = guide
         self.cycle_filter: bool = cycle_filter
@@ -176,4 +180,5 @@ def _dict_to_obs_object(dic: Dict) -> ObservationTicket:
     """
     return ObservationTicket(name=dic['name'], ra=dic['ra'], dec=dic['dec'], start_time=dic['start_time'],
                              end_time=dic['end_time'], _filter=dic['filter'], num=dic['num'], exp_time=dic['exp_time'],
-                             self_guide=dic['self_guide'], guide=dic['guide'], cycle_filter=dic['cycle_filter'])
+                             camera=dic.get('camera', 'CCD'), self_guide=dic['self_guide'], guide=dic['guide'], 
+                             cycle_filter=dic['cycle_filter'])

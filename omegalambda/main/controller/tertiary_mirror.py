@@ -21,9 +21,7 @@ class TertiaryMirror(Hardware):
         self.tertiarymirror_movement_lock = threading.Lock()
         self.CAMERA_TO_SWITCH_PORT_NAME = {
             "CCD": (1, "SBIG"),
-            "SBIG": (1, "SBIG"),
             "NIR": (3, "CRED2"),
-            "CRED2": (3, "CRED2"),
         }
         super(TertiaryMirror, self).__init__(name="TertiaryMirror")
 
