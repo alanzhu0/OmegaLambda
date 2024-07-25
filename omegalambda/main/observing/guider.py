@@ -1,4 +1,5 @@
 import threading
+import time
 import logging
 import os
 import numpy as np
@@ -100,32 +101,6 @@ class Guider(Hardware):
                     minstar = star
             guider_star = minstar
         return guider_star
-
-    @staticmethod
-    def find_newest_image(image_path):
-        """
-        Description
-        -----------
-        Finds the newest created file in a folder
-
-        Parameters
-        ----------
-        image_path : STR
-            Path to the folder of files.
-
-        Returns
-        -------
-        newest_image : STR
-            Path to the newest created file in that folder.
-
-        """
-        images = os.listdir(image_path)
-        paths = [os.path.join(image_path, fname) for fname in images if ('.fits' in fname) or ('.fit' in fname)]
-        if len(paths) > 0:
-            newest_image = max(paths, key=os.path.getctime)
-            return newest_image
-        else:
-            return None
     
     def guiding_procedure(self, image_path):
         """
@@ -148,8 +123,11 @@ class Guider(Hardware):
         x_initial = 0
         y_initial = 0
         while self.guiding.isSet():
-            self.camera.image_done.wait()
-            newest_image = self.find_newest_image(image_path)
+            if self.camera.cam_type == "NIR":
+                time.sleep(30)
+            else:
+                self.camera.image_done.wait()
+            newest_image = filereader_utils.find_newest_image(image_path)
             if not newest_image:
                 logging.warning('Guider could not find a new FITS image to read.  Waiting for next exposure.')
                 continue
@@ -163,12 +141,16 @@ class Guider(Hardware):
         failures = 0
         prev_image = ''
         while self.guiding.isSet():
-            imgcheck = self.camera.image_done.wait(timeout=30*60)
+            if self.camera.cam_type == "NIR":
+                time.sleep(30)
+                imgcheck = True
+            else:
+                imgcheck = self.camera.image_done.wait(timeout=30*60)
             if not imgcheck:
                 logging.error('Guider has not received a new image in the last 30 minutes!  Stopping guiding procedures.')
                 break
             self.loop_done.clear()
-            newest_image = self.find_newest_image(image_path)
+            newest_image = filereader_utils.find_newest_image(image_path)
             if newest_image == prev_image:
                 logging.error('Guider has read in the same image twice in a row.  Stopping guiding procedures.')
                 break

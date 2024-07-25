@@ -60,7 +60,7 @@ class FocusProcedures(Hardware):
         self.position_previous = None
         self.temp_previous = None
         self.shutdown_event = shutdown_event
-       
+
         self.focused = threading.Event()
         self.initial_focusing = threading.Event()
         self.continuous_focusing = threading.Event()
@@ -113,7 +113,7 @@ class FocusProcedures(Hardware):
         """
         self.focused.clear()
         self.initial_focusing.set()
-        
+
         if not os.path.exists(os.path.join(image_path, r'focuser_images')):
             os.mkdir(os.path.join(image_path, r'focuser_images'))
         # Creates new sub-directory for focuser images
@@ -143,15 +143,24 @@ class FocusProcedures(Hardware):
             while self.shutdown_event.isSet():
                 logging.info('Temporarily pausing focus procedures while shut down due to weather...')
                 time.sleep(self.config_dict.weather_freq * 60)
-            image_name = '{0:s}_{1:.3f}s-{2:04d}.fits'.format('FocuserImage', exp_time, i + 1)
-            path = os.path.join(image_path, r'focuser_images', image_name)
-            self.camera.onThread(self.camera.expose, exp_time, _filter, save_path=path, type="light")
+
+            prefix = '{0:s}_{1:.3f}s'.format('FocuserImage', exp_time)
+            image_name = prefix + '{0:04d}.fits'.format(i + 1)
+            focuser_images_path = os.path.join(image_path, r'focuser_images')
+
             self.focuser.onThread(self.focuser.current_position)
-            self.camera.image_done.wait()
+
+            if self.camera.cam_type == "NIR":
+                self.camera.start_exposing(exp_time, focuser_images_path, prefix, num_exposures=1)
+                path = filereader_utils.find_newest_image(focuser_images_path, prefix=prefix)
+            else:
+                self.camera.onThread(self.camera.expose, exp_time, _filter, save_path=path, type="light")
+                path = os.path.join(focuser_images_path, image_name)
+                self.camera.image_done.wait()
+
             time.sleep(2)
             current_position = self.focuser.position
-            fwhm, peak = filereader_utils.radial_average(path, self.config_dict.saturation, plot_lock=self.plot_lock,
-                                                         image_save_path=os.path.join(image_path, r'focuser_images'))
+            fwhm, peak = filereader_utils.radial_average(path, self.config_dict.saturation, plot_lock=self.plot_lock, image_save_path=focuser_images_path)
             if abs(current_position - initial_position) >= self.config_dict.focus_max_distance:
                 logging.error('Focuser has stepped too far away from initial position and could not find a focus.')
                 break
@@ -180,7 +189,7 @@ class FocusProcedures(Hardware):
             focus_positions.append(current_position)
             peaks.append(peak)
             i += 1
-        
+
         fit_status, minfocus = self.plot_focus_model(fwhm_values, focus_positions, peaks)
         if minfocus:
             if abs(initial_position - minfocus) <= self.config_dict.focus_max_distance:
@@ -254,7 +263,7 @@ class FocusProcedures(Hardware):
                 logging.info('The theoretical minimum focus was calculated to be at position {}'.format(minfocus))
 
         return fit_status, minfocus
-    
+
     def constant_focus_procedure(self):
         """
         Description

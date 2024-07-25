@@ -1,15 +1,23 @@
 import time
 import threading
+import json
 import logging
+import psutil
 import pywintypes
+import subprocess
+import sys
 import win32com.client
+import os
+from os.path import dirname, join
+import signal
 from typing import Optional, Union
 
 from .hardware import Hardware
 
 
 class Camera(Hardware):
-    
+    cam_type = "CCD"
+
     def __init__(self):
         """
         Initializes the camera as a subclass of Hardware.
@@ -146,7 +154,7 @@ class Camera(Hardware):
                 print("Cooler Setpoint adjusted to {0:.1f} C".format(self.Camera.TemperatureSetpoint))
             else:
                 pass
-    
+
     def cooler_ready(self):
         """
         Description
@@ -184,7 +192,7 @@ class Camera(Hardware):
         logging.info("Cooler has settled")
         self.cooler_settle.set()
         return
-    
+
     def _image_ready(self):
         """
         Description
@@ -255,7 +263,7 @@ class Camera(Hardware):
                 self.Camera.SaveImage(save_path)
                 self.image_done.set()
                 self.image_done.clear()
-                
+
     def disconnect(self):
         """
         Description
@@ -277,6 +285,126 @@ class Camera(Hardware):
                 logging.info("Camera has successfully disconnected")
         else:
             logging.info("Camera is already disconnected")
+
+    def set_gain(self):
+        pass
+
+    def set_binning(self, factor):
+        pass
+
+
+class NIRCamera(Camera):
+    cam_type = "NIR"
+    proc = None
+    current_dir = dirname(__file__)
+    exp_done = threading.Event()
+
+    """Implement the methods from the Camera class, but most of them won't do anything."""
+
+    def check_connection(self):
+        self.live_connection.set()
+        return
+
+    def _class_connect(self):
+        return True
+
+    def cooler_set(self, toggle):
+        self.cooler_status = toggle
+        return
+
+    def _cooler_adjust(self):
+        return
+
+    def cooler_ready(self):
+        self.cooler_settle.set()
+        return
+
+    def _image_ready(self):
+        return True
+
+    def get_fwhm(self):
+        self.fwhm = None
+
+    def expose(self, exposure_time, filter, save_path=None, type="light", **header_kwargs):
+        return
+
+    def _write_capture_code_config(self, config):
+        with open(join(self.current_dir, "cred2_capture_config.json"), "w") as f:
+            json.dump(config, f, indent=4)
+        logging.info("CRED2 capture code configuration file written.")
+
+    def _run_capture_code(self, cmd_args=[]):
+        if self.proc is not None:
+            logging.info("Terminating previous CRED2 capture code process...")
+            self.disconnect()
+        self.proc = subprocess.Popen([sys.executable, join(self.current_dir, "cred2_capture.py"), *cmd_args])
+        logging.info("NIR Camera connected. CRED2 capture code process started.")
+
+    def start_exposing(self, exposure_time, save_dir, name, calibration=None, num_exposures=None):
+        """
+        Starts continuously exposing images using the NIR camera. Runs the capture code in a separate process.
+        Pass 'flats' or 'darks' to the calibration parameter to take calibration images.
+        """
+        self.exp_done.clear()
+
+        config = {
+            "total_run_time_seconds": 0.0,  # Continuous
+            "frame_time_seconds": None,  # Use the default set by the code
+            "image_stack_time_seconds": float(exposure_time),
+            "take_calibration_images": False,
+            "data_directory": save_dir,
+            "filename_prefix": name + "-",
+            "enable_compression": None,
+            "wait_for_cooler_settle": True,
+        }
+
+        if num_exposures:
+            config["total_run_time_seconds"] = float(num_exposures) * float(exposure_time)
+
+        self._write_capture_code_config(config)
+
+        if calibration:
+            self._run_capture_code(cmd_args=[calibration])
+            time.sleep(10)
+            self.disconnect(timeout=5 * 60, terminate=False)          
+        else:
+            self._run_capture_code()
+
+        if num_exposures:
+            time.sleep(5 + config["total_run_time_seconds"])
+            self.disconnect(timeout=60, terminate=False)
+            self.exp_done.set()
+
+    def disconnect(self, timeout=15, terminate=True):
+        """
+        Description
+        ----------
+        Disconnects the camera
+
+        Returns
+        -------
+        None.
+        """
+        if self.proc is not None:
+            try:
+                if terminate:
+                    self.proc.terminate()
+                self.proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                if not terminate:
+                    self.disconnect()
+                    return
+                logging.warning("CRED2 capture code process did not terminate in time. Terminating process group.")
+                os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
+                time.sleep(15)
+                if psutil.pid_exists(self.proc.pid):
+                    logging.error("Process group still not terminated. Sending SIGKILL.")
+                    os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
+            finally:
+                self.proc = None
+            logging.info("NIR Camera has been disconnected")
+        else:
+            logging.info("NIR Camera is already disconnected")
 
     def set_gain(self):
         pass
