@@ -39,8 +39,8 @@ def mediancounts(image_path: str) -> float:
     image = fits.getdata(image_path)
     mean, median, stdev = sigma_clipped_stats(image, sigma=3)
     return median
-    
-    
+
+
 def findstars(path: str, saturation: Union[int, float], subframe: Optional[Tuple[int]] = None,
               return_data: bool = False):
     """
@@ -271,3 +271,31 @@ def radial_average(path: str, saturation: Union[int, float], plot_lock=None, ima
         plot_lock.release()
 
     return fwhm_final, fwhm_peak
+
+
+def find_newest_image(image_path, prefix=None):
+    """
+    Description
+    -----------
+    Finds the newest created file in a folder, with the option to filter by prefix.
+
+    Parameters
+    ----------
+    image_path : STR
+        Path to the folder of files.
+
+    Returns
+    -------
+    newest_image : STR
+        Path to the newest created file in that folder.
+
+    """
+    images = os.listdir(image_path)
+    if prefix:
+        images = [x for x in images if x.startswith(prefix)]
+    paths = [os.path.join(image_path, fname) for fname in images if (".fits" in fname) or (".fit" in fname)]
+    if len(paths) > 0:
+        newest_image = max(paths, key=os.path.getctime)
+        return newest_image
+    else:
+        return None

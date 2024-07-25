@@ -1,0 +1,10 @@
+{
+    "total_run_time_seconds": -1.0,
+    "frame_time_seconds": 0.1,
+    "image_stack_time_seconds": 1.0,
+    "take_calibration_images": false,
+    "data_directory": "data",
+    "filename_prefix": "image-",
+    "enable_compression": false,
+    "wait_for_cooler_settle": true
+}

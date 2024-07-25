@@ -12,7 +12,7 @@ import threading
 from ..common.util import time_utils, conversion_utils
 from ..common.IO import config_reader
 from ..common.datatype import filter_wheel
-from ..controller.camera import Camera
+from ..controller.camera import Camera, NIRCamera
 from ..controller.telescope import Telescope
 from ..controller.dome import Dome
 from ..controller.focuser_control import Focuser
@@ -65,14 +65,16 @@ class ObservationRun:
         self.shutdown_event = threading.Event()
 
         # Initializes all relevant hardware
-        self.camera = Camera()
+        if self.current_ticket.camera and self.current_ticket.camera == "NIR":
+            self.camera = NIRCamera()
+        else:  # CCD
+            self.camera = Camera()
         self.telescope = Telescope()
         self.dome = Dome()
         self.focuser = Focuser()
         self.conditions = Conditions(plot_lock=self.plot_lock)
         self.flatlamp = FlatLamp()
         self.tertiary_mirror = TertiaryMirror()
-
 
         # Initializes higher level structures - focuser, guider, and calibration
         self.focus_procedures = FocusProcedures(self.focuser, self.camera, self.conditions, self.shutdown_event, plot_lock=self.plot_lock)
@@ -97,7 +99,6 @@ class ObservationRun:
         self.tertiary_mirror.start()
         self.calibration.start()
         self.guider.start()
-
 
         self.th_dict = {'camera': self.camera, 'telescope': self.telescope,
                         'dome': self.dome, 'focuser': self.focuser, 'flatlamp': self.flatlamp,
@@ -158,7 +159,7 @@ class ObservationRun:
                     sleep_time = 0
             else:
                 sleep_time = self.config_dict.min_reopen_time * 60
-                
+
             self.monitor.skip_telescope_check = True
             time.sleep(5)
             logging.info("Disconnecting telescope.")
@@ -166,10 +167,10 @@ class ObservationRun:
             logging.info("Stopping telescope.")
             self.telescope.onThread(self.telescope.stop)
             logging.info("Telescope disconnect complete.")
-                
+
             logging.info("Sleeping for {} minutes, then weather checks will resume to attempt "
                          "a possible re-open.".format(sleep_time // 60))
-            
+
             time.sleep(sleep_time)
 
             while self.conditions.weather_alert.isSet():
@@ -204,7 +205,7 @@ class ObservationRun:
                 if current_time + datetime.timedelta(minutes=15) > self.observation_request_list[-1].end_time:
                     return False
                 check = True
-                
+
                 logging.info("Reconnecting telescope.")
                 self.restart('telescope')
                 time.sleep(30)
@@ -213,7 +214,7 @@ class ObservationRun:
                 time.sleep(15)
                 self.monitor.skip_telescope_check = False
                 time.sleep(10)
-                    
+
                 self._startup_procedure(cooler=cooler)
 
                 if self.current_ticket.end_time > datetime.datetime.now(self.tz):
@@ -411,7 +412,6 @@ class ObservationRun:
         self.check_start_time(self.observation_request_list[0])
         initial_shutter = self._startup_procedure(cooler=cooler)
 
-
         if initial_shutter == -1:
             return
 
@@ -422,6 +422,22 @@ class ObservationRun:
                 return
             self.crash_check('TheSkyX.exe')
             self.crash_check('ASCOMDome.exe')
+
+            if ticket.camera:
+                self.tertiary_mirror.select_camera(ticket.camera)
+            else:
+                logging.warning("No camera specified in the observation ticket.  Using default camera.")
+                self.tertiary_mirror.select_camera(self.config_dict.default_camera)
+            if ticket.camera != self.camera.cam_type:
+                logging.info(f"Changing program camera instance to {ticket.camera}")
+                self.camera.disconnect()
+                self.camera.stop()
+                time.sleep(5)
+                if ticket.camera == "NIR":
+                    self.camera = NIRCamera()
+                else:
+                    self.camera = Camera()
+                self.camera.start()
 
             self.tz = ticket.start_time.tzinfo
             shutdown, cooler = self.check_start_time(ticket)
@@ -531,12 +547,6 @@ class ObservationRun:
         ticket.exp_time = [ticket.exp_time] if type(ticket.exp_time) in (int, float) else ticket.exp_time
         ticket.filter = [ticket.filter] if type(ticket.filter) is str else ticket.filter
 
-        if ticket.camera:
-            self.tertiary_mirror.select_camera(ticket.camera)
-        else:
-            logging.warning("No camera specified in the observation ticket.  Using default camera.")
-            self.tertiary_mirror.select_camera(self.config_dict.default_camera)
-
         if ticket.self_guide:
             self.guider.onThread(self.guider.guiding_procedure, self.image_directories[ticket])
         header_info = self.get_general_header_info(ticket)
@@ -600,51 +610,73 @@ class ObservationRun:
         names_list = []
         image_base = {}
         i = 0
-        while i < num:
-            logging.debug('In take_images loop')
-            if end_time <= datetime.datetime.now(self.tz):
-                logging.info("The observations end time of {} has passed.  "
-                             "Stopping observation of {}.".format(end_time, name))
-                break
-            if not self.everything_ok():
-                break
-            current_filter = _filter[i % num_filters]
-            current_exp = exp_time[i % num_exptimes]
-            image_name = "{0:s}_{1:.3f}s_{2:s}-{3:04d}.fits".format(name, current_exp, str(current_filter).upper(),
-                                                                    image_num)
 
-            if i == 0 and os.path.exists(os.path.join(path, image_name)):
-                # Checks if images already exist (in the event of a crash)
-                for f, exp in zip(_filter, exp_time):
-                    names_list = [0]
-                    for fname in os.listdir(path):
-                        if n := re.search('{0:s}_{1:.3f}s_{2:s}-(.+?).fits'.format(name, exp, str(f).upper()),
-                                          fname):
-                            names_list.append(int(n.group(1)))
-                    image_base[f] = max(names_list) + 1
+        if self.camera.cam_type == "NIR":
+            i = -1
+            image_prefix = "{0:s}_{1:.3f}s".format(name, exp_time[0])
 
-                image_name = "{0:s}_{1:.3f}s_{2:s}-{3:04d}.fits".format(name, current_exp, str(current_filter).upper(),
-                                                                        image_base[current_filter])
-            header_info_i = self.add_timed_header_info(header_info, name, current_exp)
-            self.camera.onThread(self.camera.expose,
-                                 current_exp, self.filterwheel_dict[current_filter],
-                                 os.path.join(path, image_name), "light", **header_info_i)
-            self.camera.image_done.wait(timeout=int(current_exp)*2 + 60)
+            self.camera.onThread(
+                self.camera.start_exposing,
+                exp_time[0],
+                path,
+                image_prefix,
+                num_exposures=None if num == 9999 else num,
+            )
 
-            if self.crash_check('MaxIm_DL.exe'):
-                continue
+            while True:
+                logging.debug("In NIR cam monitoring loop")
+                if end_time <= datetime.datetime.now(self.tz):
+                    logging.info("The observations end time of {} has passed.  " "Stopping observation of {}.".format(end_time, name))
+                    break
+                if not self.everything_ok():
+                    break
+                if self.camera.exp_done.is_set():
+                    break
+                time.sleep(60)
+            self.camera.onThread(self.camera.disconnect)
 
-            if cycle_filter:
-                if names_list:
-                    image_num = int(image_base[_filter[(i + 1) % num_filters]] + ((i + 1) / num_filters))
-                else:
-                    image_num = int(1 + ((i + 1)/num_filters))
-            elif not cycle_filter:
-                if names_list:
-                    image_num = image_base[_filter[(i + 1) % num_filters]] + (i + 1)
-                else:
-                    image_num += 1
-            i += 1
+        else:
+            while i < num:
+                logging.debug("In take_images loop")
+                if end_time <= datetime.datetime.now(self.tz):
+                    logging.info("The observations end time of {} has passed.  " "Stopping observation of {}.".format(end_time, name))
+                    break
+                if not self.everything_ok():
+                    break
+                current_filter = _filter[i % num_filters]
+                current_exp = exp_time[i % num_exptimes]
+                image_name = "{0:s}_{1:.3f}s_{2:s}-{3:04d}.fits".format(name, current_exp, str(current_filter).upper(), image_num)
+
+                if i == 0 and os.path.exists(os.path.join(path, image_name)):
+                    # Checks if images already exist (in the event of a crash)
+                    for f, exp in zip(_filter, exp_time):
+                        names_list = [0]
+                        for fname in os.listdir(path):
+                            if n := re.search("{0:s}_{1:.3f}s_{2:s}-(.+?).fits".format(name, exp, str(f).upper()), fname):
+                                names_list.append(int(n.group(1)))
+                        image_base[f] = max(names_list) + 1
+
+                    image_name = "{0:s}_{1:.3f}s_{2:s}-{3:04d}.fits".format(name, current_exp, str(current_filter).upper(), image_base[current_filter])
+                header_info_i = self.add_timed_header_info(header_info, name, current_exp)
+                self.camera.onThread(
+                    self.camera.expose, current_exp, self.filterwheel_dict[current_filter], os.path.join(path, image_name), "light", **header_info_i
+                )
+                self.camera.image_done.wait(timeout=int(current_exp) * 2 + 60)
+
+                if self.crash_check("MaxIm_DL.exe"):
+                    continue
+
+                if cycle_filter:
+                    if names_list:
+                        image_num = int(image_base[_filter[(i + 1) % num_filters]] + ((i + 1) / num_filters))
+                    else:
+                        image_num = int(1 + ((i + 1) / num_filters))
+                elif not cycle_filter:
+                    if names_list:
+                        image_num = image_base[_filter[(i + 1) % num_filters]] + (i + 1)
+                    else:
+                        image_num += 1
+                i += 1
         return i
 
     def get_general_header_info(self, ticket):
@@ -713,6 +745,11 @@ class ObservationRun:
         if program not in prog_dict.keys():
             logging.error('Unrecognized program name to perform a crash check for.')
             return False
+
+        if program == "MaxIm_DL.exe" and self.camera.cam_type != "CCD":
+            logging.info("The selected camera is not the CCD, so MaxIm_DL.exe will not be checked.")
+            return False
+
         cmd = 'tasklist /FI "IMAGENAME eq %s" /FI "STATUS eq running"' % program
         status = subprocess.Popen(cmd, stdout=subprocess.PIPE).stdout.read()
         responding = program in str(status)
@@ -822,7 +859,7 @@ class ObservationRun:
         self.flatlamp.onThread(self.flatlamp.disconnect)
         self.tertiary_mirror.onThread(self.tertiary_mirror.disconnect)
 
-        self.monitor.run_th_monitor.clear()                 #Have to stop this first otherwise it will restart everything
+        self.monitor.run_th_monitor.clear()                 # Have to stop this first otherwise it will restart everything
         self.conditions.stop.set()
         self.focus_procedures.stop_constant_focusing()      # Should already be stopped, but just in case
         self.guider.stop_guiding()                          # Should already be stopped, but just in case
@@ -932,7 +969,10 @@ class ObservationRun:
         '''
         logging.error('Restarting thread {}'.format(thname))
         if thname == 'camera':
-            self.camera = Camera()
+            if self.current_ticket.camera and self.current_ticket.camera == 'NIR':
+                self.camera = NIRCamera()
+            else:
+                self.camera = Camera()
             self.camera.start()
             self.monitor.n_restarts['camera'] += 1
             self.monitor.threadlist['camera'] = self.camera
@@ -985,8 +1025,8 @@ class ObservationRun:
             self.gui.start()
             self.monitor.n_restarts['gui'] += 1
             self.monitor.threadlist['gui'] = self.gui
-        
+
         if thname in self.monitor.crashed:
             self.monitor.crashed.remove(thname)
-        
+
         logging.error('crashed list {}'.format(self.monitor.crashed))
