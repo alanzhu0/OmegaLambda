@@ -285,6 +285,8 @@ write_th: threading.Thread = None
 compress_th: threading.Thread = None
 
 stop_event = threading.Event()
+continue_taking_images = threading.Event()  # If False, will pause taking images
+continue_taking_images.set()
 
 
 def stop_threads(*args, script_done=False) -> None:
@@ -301,6 +303,16 @@ def stop_threads(*args, script_done=False) -> None:
     exit()
 
 
+def pause_captures() -> None:
+    print("Pausing image captures.")
+    continue_taking_images.clear()
+
+
+def resume_captures() -> None:
+    print("Resuming image captures.")
+    continue_taking_images.set()
+
+
 def read_thread() -> None:
     read_images = 0
 
@@ -308,6 +320,7 @@ def read_thread() -> None:
         if CONTINUOUS_CAPTURE:
             images: list[np.ndarray[np.uint16]] = []
             while not stop_event.is_set():
+                continue_taking_images.wait()
                 images.append(get_image())
                 if len(images) >= IMAGE_STACK_SIZE:
                     image = stack_images(images)
@@ -317,6 +330,7 @@ def read_thread() -> None:
                     read_images += 1
         else:
             for _ in tqdm(range(NUM_IMAGES), unit="images"):
+                continue_taking_images.wait()
                 images = [get_image() for _ in range(IMAGE_STACK_SIZE)]
                 image = stack_images(images)
                 write_queue.put(image)
@@ -326,12 +340,14 @@ def read_thread() -> None:
     else:
         if CONTINUOUS_CAPTURE:
             while not stop_event.is_set():
+                continue_taking_images.wait()
                 image = get_image()
                 write_queue.put(image)
                 display_queue.put(image)
                 read_images += 1
         else:
             for _ in tqdm(range(NUM_IMAGES), unit="images"):
+                continue_taking_images.wait()
                 image = get_image()
                 write_queue.put(image)
                 read_images += 1
@@ -386,6 +402,9 @@ def display_thread() -> None:
 def main() -> None:
     signal.signal(signal.SIGINT, stop_threads)
     signal.signal(signal.SIGTERM, stop_threads)
+    signal.signal(signal.SIGUSR1, pause_captures)  # Send SIGUSR1 to pause captures 
+    signal.signal(signal.SIGUSR2, resume_captures)  # Send SIGUSR2 to resume captures
+
     connect()
     setup()
     

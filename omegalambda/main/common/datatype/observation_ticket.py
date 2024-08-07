@@ -13,7 +13,8 @@ class ObservationTicket:
                  end_time: Optional[str] = None, _filter: Optional[Union[str, List[str]]] = None,
                  num: Optional[int] = None, exp_time: Optional[Union[float, int, List[Union[float, int]]]] = None,
                  camera: Optional[str] = None, self_guide: Optional[bool] = None, guide: Optional[bool] = None, 
-                 cycle_filter: Optional[bool] = None):
+                 cycle_filter: Optional[bool] = None, satellite_tracking: Optional[bool] = None,
+                 satellite_tracking_mode: Optional[int] = None):
         """
 
         Parameters
@@ -46,6 +47,14 @@ class ObservationTicket:
         cycle_filter : BOOL, optional
             If true, filter will cycle after each exposure, if False filter will
             cycle after number specified in num parameter. The default is None.
+        satellite_tracking : BOOL, optional
+            If True, the telescope will track the satellite specified in `name`. The default is None.
+        satellite_tracking_mode : INT, optional
+            Satellite tracking - Landolt mission observing modes
+            0: Satellite tracking disabled
+            1: Track satellite, stars streak
+            2: Track stars, satellite streaks
+            3: Track satellite at half rate, both stars and satellite streak
 
         Returns
         -------
@@ -90,6 +99,8 @@ class ObservationTicket:
         self.self_guide: bool = self_guide
         self.guide: bool = guide
         self.cycle_filter: bool = cycle_filter
+        self.satellite_tracking: bool = satellite_tracking
+        self.satellite_tracking_mode: int = satellite_tracking_mode
 
         if not self.check_ticket():
             raise AttributeError
@@ -137,10 +148,10 @@ class ObservationTicket:
 
         """
         check = True
-        if self.ra < 0 or self.ra > 24:
+        if self.ra and (self.ra < 0 or self.ra > 24):
             logging.error('Error reading ticket: ra not between 0 and 24 hrs')
             check = False
-        if abs(self.dec) > 90:
+        if self.dec and abs(self.dec) > 90:
             logging.error('Error reading ticket: dec greater than +90 or less than -90...')
             check = False
         if type(self.start_time) is not datetime.datetime:
@@ -162,6 +173,13 @@ class ObservationTicket:
             if len(e_times) > 1 and (len(e_times) != len(filts)):
                 logging.error('Number of filters and number of exposure times must match!')
                 check = False
+        if self.satellite_tracking and self.self_guide:
+            logging.error('Error reading ticket: self-guiding must be disabled for satellite tracking.')
+            check = False
+        if not 0 <= self.satellite_tracking_mode <= 3:
+            logging.error('Error reading ticket: satellite tracking mode must be 0, 1, 2, or 3')
+            check = False
+
         return check
 
 
@@ -181,4 +199,5 @@ def _dict_to_obs_object(dic: Dict) -> ObservationTicket:
     return ObservationTicket(name=dic['name'], ra=dic['ra'], dec=dic['dec'], start_time=dic['start_time'],
                              end_time=dic['end_time'], _filter=dic['filter'], num=dic['num'], exp_time=dic['exp_time'],
                              camera=dic.get('camera', 'CCD'), self_guide=dic['self_guide'], guide=dic['guide'], 
-                             cycle_filter=dic['cycle_filter'])
+                             cycle_filter=dic['cycle_filter'], satellite_tracking=dic['satellite_tracking'],
+                             satellite_tracking_mode=dic['satellite_tracking_mode'])

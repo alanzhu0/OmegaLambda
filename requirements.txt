@@ -30,6 +30,7 @@ requests>=2.24.0
 scipy>=1.5.0
 setuptools>=49.2.0
 six>=1.15.0
+skyfield>=1.49
 typed-ast>=1.4.1
 tqdm>=4.66.4
 winregistry>=0.8.3

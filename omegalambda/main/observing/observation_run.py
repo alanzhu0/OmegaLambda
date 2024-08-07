@@ -1,4 +1,5 @@
-import datetime
+from datetime import datetime, timezone, timedelta
+now = datetime.now
 import pytz
 from astropy.time import Time
 import time
@@ -9,7 +10,7 @@ import logging
 import subprocess
 import threading
 
-from ..common.util import time_utils, conversion_utils
+from ..common.util import time_utils, conversion_utils, satellite_utils
 from ..common.IO import config_reader
 from ..common.datatype import filter_wheel
 from ..controller.camera import Camera, NIRCamera
@@ -26,6 +27,8 @@ from .calibration import Calibration
 from .guider import Guider
 from .condition_checker import Conditions
 
+
+SLEW_TIME = 3  # time (sec) it takes for the telescope slew to complete
 
 class ObservationRun:
     def __init__(self, observation_request_list, image_directory, shutdown_toggle, calibration_toggle, focus_toggle):
@@ -63,6 +66,8 @@ class ObservationRun:
         self.time_start = None
         self.plot_lock = threading.Lock()
         self.shutdown_event = threading.Event()
+
+        self.satellite = None
 
         # Initializes all relevant hardware
         if self.current_ticket.camera and self.current_ticket.camera == "NIR":
@@ -178,15 +183,15 @@ class ObservationRun:
                     cooler = True
                     self.camera.onThread(self.camera.cooler_set, False)
                     self.focus_procedures.stop_constant_focusing()                    
-                    sunset_time = conversion_utils.get_sunset(datetime.datetime.now(self.tz),
+                    sunset_time = conversion_utils.get_sunset(datetime.now(self.tz),
                                                               self.config_dict.site_latitude,
                                                               self.config_dict.site_longitude)
                     logging.info('The Sun has risen above the horizon...observing will stop until the Sun sets again '
                                  'at {}.'.format(sunset_time.strftime('%Y-%m-%d %H:%M:%S%z')))
-                    current_time = datetime.datetime.now(self.tz)
-                    while current_time < (sunset_time - datetime.timedelta(minutes=5)):
+                    current_time = datetime.now(self.tz)
+                    while current_time < (sunset_time - timedelta(minutes=5)):
                         self.threadcheck()
-                        current_time = datetime.datetime.now(self.tz)
+                        current_time = datetime.now(self.tz)
                         if current_time > self.observation_request_list[-1].end_time:
                             return False
                         time.sleep((self.config_dict.weather_freq + 1) * 60)
@@ -195,14 +200,14 @@ class ObservationRun:
                 else:
                     self.threadcheck()
                     logging.info("Still waiting for good conditions to reopen.")
-                    current_time = datetime.datetime.now(self.tz)
+                    current_time = datetime.now(self.tz)
                     if current_time > self.observation_request_list[-1].end_time:
                         return False
                     time.sleep(self.config_dict.weather_freq * 60)
 
             if not self.conditions.weather_alert.isSet():
-                current_time = datetime.datetime.now(self.tz)
-                if current_time + datetime.timedelta(minutes=15) > self.observation_request_list[-1].end_time:
+                current_time = datetime.now(self.tz)
+                if current_time + timedelta(minutes=15) > self.observation_request_list[-1].end_time:
                     return False
                 check = True
 
@@ -217,7 +222,7 @@ class ObservationRun:
 
                 self._startup_procedure(cooler=cooler)
 
-                if self.current_ticket.end_time > datetime.datetime.now(self.tz):
+                if self.current_ticket.end_time > datetime.now(self.tz):
                     if not self._ticket_slew(self.current_ticket):
                         return False
                     ###  Probably don't need to redo coarse focus after reopening from weather
@@ -280,6 +285,13 @@ class ObservationRun:
             True if slew was successful, otherwise False.
 
         """
+
+        if ticket.satellite_tracking:
+            ra, dec = satellite_utils.get_ra_dec(self.satellite)
+            ra, dec = conversion_utils.convert_apparent_to_j2000(ra, dec)
+            ticket.ra = ra
+            ticket.dec = dec
+
         logging.info('Slewing the telescope to the target\'s ra=' + str(ticket.ra) + ' and dec=' + str(ticket.dec))
         self.telescope.onThread(self.telescope.slew, ticket.ra, ticket.dec)
         time.sleep(2)
@@ -354,12 +366,12 @@ class ObservationRun:
         """
         shutdown = False
         cooler = False
-        current_time = datetime.datetime.now(self.tz)
+        current_time = datetime.now(self.tz)
         if ticket.start_time > current_time:
             logging.info("It is not the start time {} of {} observation, "
                          "waiting till start time.".format(ticket.start_time.isoformat(), ticket.name))
             if ticket != self.observation_request_list[0] and \
-                    ((ticket.start_time - current_time) > datetime.timedelta(hours=8)):
+                    ((ticket.start_time - current_time) > timedelta(hours=8)):
                 logging.info("Start time of the next ticket is at least 8 hours in advance.  Shutting down "
                              "observatory in the meantime.")
                 cooler = True
@@ -370,7 +382,7 @@ class ObservationRun:
                 self.guider.stop_guiding()
                 shutdown = True
             elif ticket != self.observation_request_list[0] and \
-                    ((ticket.start_time - current_time) > datetime.timedelta(minutes=5)):
+                    ((ticket.start_time - current_time) > timedelta(minutes=5)):
                 logging.info("Start time of the next ticket is not immediate.  Shutting down "
                              "observatory in the meantime.")
                 cooler = False
@@ -379,7 +391,7 @@ class ObservationRun:
                 self.focus_procedures.stop_constant_focusing()
                 self.guider.stop_guiding()
                 shutdown = True
-            current_time = datetime.datetime.now(self.tz)
+            current_time = datetime.now(self.tz)
             current_epoch_milli = time_utils.datetime_to_epoch_milli_converter(current_time)
             start_time_epoch_milli = time_utils.datetime_to_epoch_milli_converter(ticket.start_time)
             dt = (start_time_epoch_milli - current_epoch_milli) / 1000
@@ -441,7 +453,7 @@ class ObservationRun:
 
             self.tz = ticket.start_time.tzinfo
             shutdown, cooler = self.check_start_time(ticket)
-            if ticket.end_time < datetime.datetime.now(self.tz):
+            if ticket.end_time < datetime.now(self.tz):
                 logging.info("the end time {} of {} observation has already passed. "
                              "Skipping to next target.".format(ticket.end_time.isoformat(), ticket.name))
                 continue
@@ -450,6 +462,19 @@ class ObservationRun:
                 return
             if shutdown:
                 initial_shutter = self._startup_procedure(cooler=cooler)
+
+            if ticket.satellite_tracking:
+                self.satellite = satellite_utils.build_satellite(ticket.satellite_name)
+                if self.satellite is None:
+                    logging.error("Failed to build satellite object. Stopping observing.")
+                    self.shutdown()
+                    return
+                ra, dec = satellite_utils.get_ra_dec(self.satellite)
+                ra, dec = conversion_utils.convert_apparent_to_j2000(ra, dec)
+                ticket.ra = ra
+                ticket.dec = dec
+            else:
+                self.satellite = None
 
             if not self._ticket_slew(ticket):
                 self.shutdown()
@@ -553,7 +578,7 @@ class ObservationRun:
         if ticket.cycle_filter:
             img_count = self.take_images(ticket.name, ticket.num, ticket.exp_time,
                                          ticket.filter, ticket.end_time, self.image_directories[ticket],
-                                         True, header_info)
+                                         True, header_info, ticket.satellite_tracking, ticket.satellite_tracking_mode)
             if self.continuous_focus_toggle:
                 self.focus_procedures.stop_constant_focusing()
             if ticket.self_guide:
@@ -568,7 +593,7 @@ class ObservationRun:
             for i in range(len(ticket.filter)):
                 img_count_filter = self.take_images(ticket.name, ticket.num, [ticket.exp_time[i]],
                                                     [ticket.filter[i]], ticket.end_time, self.image_directories[ticket],
-                                                    False, header_info)
+                                                    False, header_info, ticket.satellite_tracking, ticket.satellite_tracking_mode)
                 img_count += img_count_filter
             if self.continuous_focus_toggle:
                 self.focus_procedures.stop_constant_focusing()
@@ -577,7 +602,7 @@ class ObservationRun:
                 self.guider.loop_done.wait(timeout=10)
             return img_count, ticket.num * len(ticket.filter)
 
-    def take_images(self, name, num, exp_time, _filter, end_time, path, cycle_filter, header_info):
+    def take_images(self, name, num, exp_time, _filter, end_time, path, cycle_filter, header_info, satellite_tracking, satellite_tracking_mode):
         """
         Parameters
         ----------
@@ -589,7 +614,7 @@ class ObservationRun:
             The exposure times of each image.
         _filter : LIST, STR
             The filters to be used during the night.
-        end_time : datetime.datetime Object
+        end_time : datetime Object
             The end time of the observation session, set
             in the observation ticket.
         path : STR
@@ -597,6 +622,12 @@ class ObservationRun:
         cycle_filter : BOOL
             If True, camera will cycle filter after each exposre,
             if False, camera will cycle filter after num value has been reached.
+        header_info : DICT
+            The header information to be added to the image.
+        satellite_tracking : BOOL
+            If True, the telescope will track the specified satellite.
+        satellite_tracking_mode : INT
+            The tracking mode code.
 
         Returns
         -------
@@ -611,6 +642,11 @@ class ObservationRun:
         image_base = {}
         i = 0
 
+        satellite_check_time = datetime.now()
+
+        if satellite_tracking and satellite_tracking_mode == 1:
+            self.satellite_tracking_mode_1_initialize()
+
         if self.camera.cam_type == "NIR":
             i = -1
             image_prefix = "{0:s}_{1:.3f}s".format(name, exp_time[0])
@@ -620,25 +656,38 @@ class ObservationRun:
                 exp_time[0],
                 path,
                 image_prefix,
-                num_exposures=None if num == 9999 else num,
+                num_exposures=None if num == 100000 else num,
             )
 
             while True:
                 logging.debug("In NIR cam monitoring loop")
-                if end_time <= datetime.datetime.now(self.tz):
+                if end_time <= datetime.now(self.tz):
                     logging.info("The observations end time of {} has passed.  " "Stopping observation of {}.".format(end_time, name))
                     break
                 if not self.everything_ok():
                     break
                 if self.camera.exp_done.is_set():
                     break
-                time.sleep(60)
+
+                if satellite_tracking:
+                    if datetime.now() >= satellite_check_time:
+                        if satellite_tracking_mode in (2, 3):
+                            self.camera.pause_exposing()
+                            time.sleep(0.5)
+                        wait_seconds = self.continuous_satellite_tracking_procedure(satellite_tracking_mode)
+                        satellite_check_time = datetime.now() + timedelta(seconds=wait_seconds - 1)
+                        if satellite_tracking_mode in (2, 3):
+                            self.camera.resume_exposing()
+                    time.sleep(wait_seconds)
+                else:
+                    time.sleep(30)
+
             self.camera.onThread(self.camera.disconnect)
 
         else:
             while i < num:
                 logging.debug("In take_images loop")
-                if end_time <= datetime.datetime.now(self.tz):
+                if end_time <= datetime.now(self.tz):
                     logging.info("The observations end time of {} has passed.  " "Stopping observation of {}.".format(end_time, name))
                     break
                 if not self.everything_ok():
@@ -655,16 +704,35 @@ class ObservationRun:
                             if n := re.search("{0:s}_{1:.3f}s_{2:s}-(.+?).fits".format(name, exp, str(f).upper()), fname):
                                 names_list.append(int(n.group(1)))
                         image_base[f] = max(names_list) + 1
-
                     image_name = "{0:s}_{1:.3f}s_{2:s}-{3:04d}.fits".format(name, current_exp, str(current_filter).upper(), image_base[current_filter])
-                header_info_i = self.add_timed_header_info(header_info, name, current_exp)
+
+                # Satellite tracking
+                if satellite_tracking and datetime.now() >= satellite_check_time:
+                    wait_seconds = self.continuous_satellite_tracking_procedure(satellite_tracking_mode)
+                    satellite_check_time = datetime.now() + timedelta(seconds=wait_seconds)
+                    if satellite_tracking_mode != 1:
+                        satellite_check_time -= timedelta(seconds=current_exp)
+
+                header_info_i = self.add_timed_header_info(header_info, name, current_exp, satellite_tracking)
                 self.camera.onThread(
                     self.camera.expose, current_exp, self.filterwheel_dict[current_filter], os.path.join(path, image_name), "light", **header_info_i
                 )
-                self.camera.image_done.wait(timeout=int(current_exp) * 2 + 60)
 
                 if self.crash_check("MaxIm_DL.exe"):
                     continue
+
+                if satellite_tracking and satellite_tracking_mode == 1:  # Continuously adjust the tracking rate for mode 1
+                    cumulative_time = 0
+                    while not self.camera.image_done.is_set():
+                        time.sleep(0.1)
+                        cumulative_time += 0.1
+                        if datetime.now() >= satellite_check_time:
+                            wait_seconds = self.continuous_satellite_tracking_procedure(satellite_tracking_mode)
+                            satellite_check_time = datetime.now() + timedelta(seconds=wait_seconds)
+                        if cumulative_time >= int(current_exp) * 2 + 60:
+                            break
+                else:
+                    self.camera.image_done.wait(timeout=int(current_exp) * 2 + 60)
 
                 if cycle_filter:
                     if names_list:
@@ -677,7 +745,69 @@ class ObservationRun:
                     else:
                         image_num += 1
                 i += 1
+
+        if satellite_tracking and satellite_tracking_mode in (1, 3):
+            self.telescope.onThread(self.telescope.clear_ra_dec_rates)
+
         return i
+
+    def satellite_tracking_mode_1_initialize(self):
+        ra_rate, dec_rate = satellite_utils.get_ra_dec_rates(self.satellite)  # do this first since it takes a little time
+        ra, dec = satellite_utils.get_ra_dec(self.satellite, self.slew_time_correction())
+        self.telescope.onThread(self.telescope.slew, ra, dec)
+        self.telescope.onThread(self.telescope.set_ra_dec_rates, ra_rate, dec_rate)
+        logging.info(f"Slewing to satellite position for tracking mode 1: RA={ra} Dec={dec}")
+        self.telescope.slew_done.wait()
+
+    def continuous_satellite_tracking_procedure(self, mode):
+        """Procedure for tracking the satellite. Returns number of seconds to wait before next check."""
+        ra_rate, dec_rate = satellite_utils.get_ra_dec_rates(self.satellite)
+
+        logging.debug(f"Satellite tracking mode {mode} - RA rate: {ra_rate}, Dec rate: {dec_rate}")
+
+        if mode == 1:  # Track satellite, stars streak
+            self.telescope.onThread(self.telescope.set_ra_dec_rates, ra_rate, dec_rate)
+            return 10
+
+        calc_time = self.slew_time_correction(self.half_fov_time(ra_rate, dec_rate))
+        ra, dec = satellite_utils.get_ra_dec(self.satellite, calc_time)
+
+        self.telescope.onThread(self.telescope.slew, ra, dec)  # Mode 2 and 3
+
+        logging.info(f"Slewing to capture satellite streak in tracking mode {mode}: RA={ra} Dec={dec}")
+
+        if mode == 2:
+            self.telescope.slew_done.wait()
+            return self.calc_satellite_fov_time(ra_rate, dec_rate)
+
+        if mode == 3:  # Half satellite rate
+            self.telescope.onThread(self.telescope.set_ra_dec_rates, ra_rate / 2, dec_rate / 2)
+            self.telescope.slew_done.wait()
+            return self.calc_satellite_fov_time(ra_rate / 2, dec_rate / 2)
+
+    def slew_time_correction(self, date=None):
+        """
+        Returns the datetime at which to calculate the satellite position so that the satellite is
+        centered in the field of view after the slew, accounting for how long the telescope takes to slew.
+        """
+        if date is None:
+            date = datetime.now(timezone.utc)
+        return date + timedelta(seconds=SLEW_TIME)
+
+    def half_fov_time(self, *args):
+        """
+        Returns the time (datetime) at which, if the satellite is at the edge of the detector now,
+        the satellite will be centered in the field of view.
+        """
+        fov_time = self.calc_satellite_fov_time(*args)
+        return datetime.now(timezone.utc) + timedelta(seconds=fov_time)
+
+    def calc_satellite_fov_time(self, ra_rate=None, dec_rate=None):
+        """Returns the time (sec) it takes for the satellite to move through the entire field of view."""
+        if ra_rate is None or dec_rate is None:
+            ra_rate, dec_rate = satellite_utils.get_ra_dec_rates(self.satellite)
+        max_sat_rate = max(ra_rate, dec_rate) / 60  # arcmin/s
+        return self.camera.fov / max_sat_rate
 
     def get_general_header_info(self, ticket):
         ra2k, dec2k = ticket.ra, ticket.dec
@@ -696,12 +826,17 @@ class ObservationRun:
         }
         return header_info
 
-    def add_timed_header_info(self, header_info_orig, name, exp_time):
+    def add_timed_header_info(self, header_info_orig, name, exp_time, satellite_tracking):
         header_info = copy.deepcopy(header_info_orig)
         # Define for mid-exposure time
         header_info['JD_UTC'] = time_utils.convert_to_jd_utc() + (exp_time/2) / (24*60*60)
         epoch_datetime = Time(header_info['JD_UTC'], format='jd', scale='utc').datetime
         epoch_datetime = pytz.utc.localize(epoch_datetime)
+
+        if satellite_tracking:  # The satellite keeps moving, so the RA and Dec need to be updated for each image
+            header_info['RA_OBJ'], header_info['DEC_OBJ'] = self.telescope.get_ra_dec()
+            header_info['RAOBJ2K'], header_info['DECOBJ2K'] = conversion_utils.convert_apparent_to_j2000(header_info['RA_OBJ'], header_info['DEC_OBJ'])
+
         bjd_tdb = time_utils.convert_to_bjd_tdb(header_info['JD_UTC'], name, self.config_dict.site_latitude,
                                                 self.config_dict.site_longitude,
                                                 self.config_dict.site_altitude,
@@ -802,7 +937,7 @@ class ObservationRun:
             if self.calibrated_tickets[i]:
                 logging.debug('The target\'s calibration images have already been collected...skipping to next.')
                 continue
-            if (self.observation_request_list[i].start_time >= datetime.datetime.now(self.tz)) and (beginning is False):
+            if (self.observation_request_list[i].start_time >= datetime.now(self.tz)) and (beginning is False):
                 logging.debug('The start time of the ticket has not passed yet, ending calibration loop.')
                 break
             logging.debug('Calibration ticket start time is {}'.format(self.observation_request_list[i].start_time.strftime('%Y-%m-%dT%H:%M:%S%z')))
