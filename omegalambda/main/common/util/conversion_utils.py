@@ -330,3 +330,7 @@ def decimal(sexagesimal: str) -> float:
         return hh + mm/60 + ss/3600
     elif hh < 0 or valtup[0] == '-00':
         return hh - mm/60 - ss/3600
+
+SEC_TO_SIDEREAl_SEC = 0.9972695602
+def convert_sec_to_sidereal_sec(seconds: float) -> float:
+    return seconds * SEC_TO_SIDEREAl_SEC

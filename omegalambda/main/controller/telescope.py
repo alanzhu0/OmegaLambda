@@ -11,7 +11,7 @@ from .hardware import Hardware
 
 
 class Telescope(Hardware):
-    
+
     def __init__(self):
         """
         Initializes the telescope class as a subclass of Hardware.
@@ -111,7 +111,7 @@ class Telescope(Hardware):
         else:
             return True
         # TODO: Figure out if there are any other limits
-       
+
     def _is_ready(self):
         """
         Description
@@ -135,7 +135,7 @@ class Telescope(Hardware):
         check = self.__check_coordinate_limit(ra, dec)
         self.status = check
         return self.status
-          
+
     def park(self, coord_check_delay_ms=0):
         """
 
@@ -185,7 +185,7 @@ class Telescope(Hardware):
         self._is_ready()
         self.slew_done.set()
         return park_status
-        
+
     def unpark(self):
         """
 
@@ -208,8 +208,8 @@ class Telescope(Hardware):
             logging.info("Telescope is unparked; tracking at sidereal rate")
             logging.info("Telescope is unparked, tracking on")
             return True
-    
-    def slew(self, ra, dec, tracking=True, coord_check_delay_ms=0):
+
+    def slew(self, ra, dec, tracking=True, coord_check_delay_ms=0, convert_to_apparent=True):
         """
 
         Parameters
@@ -231,7 +231,8 @@ class Telescope(Hardware):
 
         """
         self.slew_done.clear()
-        (ra, dec) = conversion_utils.convert_j2000_to_apparent(ra, dec)
+        if convert_to_apparent:
+            (ra, dec) = conversion_utils.convert_j2000_to_apparent(ra, dec)
         # Telescope internally uses apparent epoch coordinates, but we input in J2000
         if self.__check_coordinate_limit(ra, dec, verbose=1) is False:
             logging.error("Coordinates are outside of physical slew limits.")
@@ -270,6 +271,9 @@ class Telescope(Hardware):
                 self.last_slew_status = False
         self.slew_done.set()
         return self.last_slew_status
+    
+    def get_ra_dec(self):
+        return self.Telescope.RightAscension, self.Telescope.Declination
 
     def set_tracking(self, tracking):
         try:
@@ -280,7 +284,45 @@ class Telescope(Hardware):
             logging.error('Could not set telescope tracking!')
         self._is_ready()
         return True
-    
+
+    def set_ra_dec_rates(self, ra_rate, dec_rate, convert_to_sidereal_sec=True):
+        """
+        Sets custom mount tracking rates in RA and Dec.
+
+        Parameters
+        ----------
+        ra_rate : FLOAT
+            Custom RA tracking rate, arcseconds per second.
+        dec_rate : FLOAT
+            Custom Dec tracking rate, arcseconds per second.
+
+        Returns
+        -------
+        None
+        """
+        self._is_ready()
+        try:
+            with self.movement_lock:
+                logging.info(f'Setting telescope tracking rates to ra={ra_rate}"/s and dec={dec_rate}"/s')
+                if convert_to_sidereal_sec:
+                    ra_rate = conversion_utils.convert_sec_to_sidereal_sec(ra_rate)
+                    dec_rate = conversion_utils.convert_sec_to_sidereal_sec(dec_rate)
+                self.Telescope.RightAscensionRate = ra_rate - 15  # 15 is sidereal rate
+                self.Telescope.DeclinationRate = dec_rate
+                self.Telescope.Tracking = True
+        except (AttributeError, pywintypes.com_error):
+            logging.error('Could not set telescope tracking rates!')
+
+    def clear_ra_dec_rates(self):
+        """
+        Clears custom mount tracking rates, returning them to sidereal.
+
+        Returns
+        -------
+        None
+        """
+        self.set_ra_dec_rates(15, 0, convert_to_sidereal_sec=False)
+
     def pulse_guide(self, direction, duration):
         """
 
@@ -300,13 +342,13 @@ class Telescope(Hardware):
         self.slew_done.clear()
         direction_key = {"north": 0, "south": 1, "east": 2, "west": 3}
         # Converts str to int, used by internal telescope calls
-        
+
         if direction in direction_key:
             direction_num = direction_key[direction]
         else:
             logging.error("Invalid pulse guide direction")
             return False
-        
+
         duration *= 1000
         # Convert seconds to milliseconds, used by internal telescope calls
         self._is_ready()
@@ -321,7 +363,7 @@ class Telescope(Hardware):
             self.slew_done.set()
             logging.info('Telescope is pulse guiding')
             return True
-            
+
     def jog(self, direction, distance):
         """
 
@@ -344,7 +386,7 @@ class Telescope(Hardware):
         # Dictionaries to convert direction str to distance
         distance_key = {**dict.fromkeys(["north", "east"], distance),
                         **dict.fromkeys(["south", "west"], -distance)}
-        
+
         if direction in rates_key:
             rate = rates_key[direction]
             distance = distance_key[direction]
@@ -355,14 +397,14 @@ class Telescope(Hardware):
             duration = (abs(distance)/3600)/rate
             logging.debug('Calculated Pulse Guide Duration: {} milliseconds'.format(duration*1000))
             self.pulse_guide(direction, duration)
-            
+
         elif abs(distance) >= 30*60:                         # More than 30', slew normally
             if direction in ("north", "south"):
                 self.slew(self.Telescope.RightAscension, self.Telescope.Declination + distance/3600)
             elif direction in ("east", "west"):
                 self.slew(self.Telescope.RightAscension + distance/(15*3600), self.Telescope.Declination)
             logging.info('Telescope is jogging')
-    
+
     def slewaltaz(self, az, alt, time=None, tracking=False, coord_check_delay_ms=0):
         """
 
@@ -390,7 +432,7 @@ class Telescope(Hardware):
         slew = self.slew(ra, dec, tracking, coord_check_delay_ms=coord_check_delay_ms)
         logging.info('Slewing to Alt/Az')
         return slew
-    
+
     def abort(self):
         """
         Description
@@ -404,7 +446,7 @@ class Telescope(Hardware):
         """
         logging.warning('Aborting slew')
         self.Telescope.AbortSlew()
-        
+
     def disconnect(self):
         """
         Description
@@ -434,6 +476,6 @@ class Telescope(Hardware):
         else: 
             logging.warning("Telescope is not parked.")
             return False
-        
-        
+
+
 # Don't know what the cordwrap functions were all about in the deprecated telescope file?

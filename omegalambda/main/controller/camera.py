@@ -17,6 +17,7 @@ from .hardware import Hardware
 
 class Camera(Hardware):
     cam_type = "CCD"
+    fov = 26  # Field of view in arcminutes
 
     def __init__(self):
         """
@@ -295,6 +296,7 @@ class Camera(Hardware):
 
 class NIRCamera(Camera):
     cam_type = "NIR"
+    fov = 10  # Field of view in arcminutes
     proc = None
     current_dir = dirname(__file__)
     exp_done = threading.Event()
@@ -374,6 +376,20 @@ class NIRCamera(Camera):
             time.sleep(5 + config["total_run_time_seconds"])
             self.disconnect(timeout=60, terminate=False)
             self.exp_done.set()
+
+    def pause_exposing(self):
+        if self.proc is not None:
+            self.proc.send_signal(signal.SIGUSR1)
+            logging.info("NIR camera captures paused.")
+        else:
+            logging.warning("NIR camera is not connected. Cannot pause.")
+    
+    def resume_exposing(self):
+        if self.proc is not None:
+            self.proc.send_signal(signal.SIGUSR2)
+            logging.info("NIR camera captures resumed.")
+        else:
+            logging.warning("NIR camera is not connected. Cannot resume.")
 
     def disconnect(self, timeout=15, terminate=True):
         """

@@ -51,9 +51,11 @@ def exampletxt():
     tk.Label(master, text='Number of science exposures to be taken').grid(row=8, column=2)
     tk.Label(master, text='Exposure time in seconds for each science image').grid(row=9, column=2)
     tk.Label(master, text="Camera to be used for observation: CCD or NIR").grid(row=10, column=2)
-    tk.Label(master, text='Enable self guiding').grid(row=11, column=2)
+    tk.Label(master, text='Enable self guiding. Disabled if satellite tracking is enabled.').grid(row=11, column=2)
     tk.Label(master, text='Enable 3rd party guiding').grid(row=12, column=2)
     tk.Label(master, text='Cycle filter after each science image').grid(row=13, column=2)
+    tk.Label(master, text='Enable satellite tracking').grid(row=14, column=2)
+    tk.Label(master, text="Satellite tracking mode. 0: Disabled\n1: Satellite tracking; 2: Sidereal tracking; 3: Half-rate tracking").grid(row=15, column=2)
 
 
 def quit_func():
@@ -86,7 +88,7 @@ def check_toi():
     displays it on the widget
 
     '''
-    global info_directory, google_path
+    global info_directory, google_path, SATELLITES
     current_directory = os.path.abspath(os.path.dirname(__file__))
     info_directory = os.path.join(current_directory, r'toi_info')
     if not os.path.exists(info_directory):
@@ -106,6 +108,32 @@ def check_toi():
         tk.Label(master, text="Tonight's TOI is {}".format(toi_tonight), font=('Courier', 12)).grid(row=0, column=1)
     else:
         tk.Label(master, text='No target specified for tonight', font=('Courier', 12)).grid(row=0, column=1)
+
+    # Satellites
+    satellites_path = os.path.abspath(os.path.join(info_directory, 'satellites.txt'))
+
+    # Celestrak has a very tight rate limit
+    if os.path.exists(satellites_path) and datetime.datetime.now() - datetime.datetime.fromtimestamp(os.path.getmtime(satellites_path)) < datetime.timedelta(hours=12):
+        with open(satellites_path, 'r') as f:
+            SATELLITES = {line.strip() for line in f}
+    else:
+        tles_url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
+
+        dialog = DialogThread("Downloading satellite info", "Please wait...retrieving satellite information.\nThis may take up to 30 seconds.")
+        tles = requests.get(tles_url, timeout=30)
+
+        SATELLITES = set()
+        for line in tles.text.splitlines():
+            if line[0] not in ('1', '2'):
+                line = line.strip()
+                SATELLITES.add(line.upper())
+                if '(' in line:
+                    SATELLITES.add(line.split('(')[0].strip().upper())
+
+        with open(satellites_path, 'w') as f:
+            f.write('\n'.join(sorted(SATELLITES)))
+        
+        dialog.join()
 
 
 class DialogThread(Thread):
@@ -164,6 +192,10 @@ def target_grab():
                     selected_cam = str(google_sheet['Camera'][x])
                 else:
                     selected_cam = "CCD"
+                if "Satellite Tracking" in google_sheet.columns:
+                    satellite_tracking_data = int(google_sheet['Satellite Tracking'][x])
+                if "Tracking Mode" in google_sheet.columns:
+                    tracking_mode_data = int(google_sheet['Tracking Mode'][x])
 
         toi = target_toi.split(' ')[1]
         info_chart_path = os.path.abspath(os.path.join(info_directory, 'info_chart.csv'))
@@ -198,10 +230,12 @@ def target_grab():
         # all the information for the target
         begin = '{} {}'.format(day_start, time_s)
         end = '{} {}'.format(day_end, time_e)
-        tonight_toi = target_toi.replace(r' ', '').replace(r'.', '-')
+        tonight_toi = target_toi
+        if target_toi.startswith('TOI'):
+            tonight_toi = target_toi.replace(r' ', '').replace(r'.', '-')
         exposure = exposure.replace('s', '')
         filter_input = str(filter_input)
-        num_exposures = 9999
+        num_exposures = 100000
 
         # Inserts the target info into the text boxes
         name.insert(10, str(tonight_toi))
@@ -213,6 +247,10 @@ def target_grab():
         n_exposures.insert(10, str(num_exposures))
         exposure_time.insert(10, str(exposure))
         camera.set(selected_cam)   
+        satellite_tracking.set(satellite_tracking_data)
+        satellite_tracking_mode.set(tracking_mode_data)
+        self_guide.set(0 if satellite_tracking_data else 1)  # Disable self guiding if satellite tracking is enabled
+
 
 def create_list():
     '''
@@ -256,29 +294,6 @@ def dst_check():
     return '-04:00' if time.localtime().tm_isdst == 1 else '-05:00'
 
 
-def truefalse_check():
-    """
-    Description
-    -----------
-    Takes the integers returned by the checkboxes and converts them into strings for .json file
-
-    Returns
-    -------
-    self_guide_var : STR
-        Whether or not to activate self_guide, default is true.
-    guide_var : STR
-        Whether or not to activate outside guiding, default is false.
-    cycle_filter_var : STR
-        Whether or not to cycle filter after every image, default is false.
-
-    """
-    self_guide_var = 'true' if self_guide.get() == 1 else 'false'
-    guide_var = 'true' if guide.get() == 1 else 'false'
-    cycle_filter_var = 'true' if cycle_filter.get() == 1 else 'false'
-
-    return self_guide_var, guide_var, cycle_filter_var
-
-
 def list_split(entry):
     """
     Description
@@ -300,11 +315,11 @@ def list_split(entry):
     if entry == exposure_time:
         i = [float(t) for t in i] if len(i) > 1 else float(i[0])
     elif entry == filter_:
-        i = json.dumps([ii if ii == 'Ha' else ii.lower() for ii in i]) if len(i) > 1 else '\"{}\"'.format(
-            i[0] if i[0] == 'Ha' else i[0].lower())
+        i = json.dumps([ii if ii == 'Ha' else ii.lower() for ii in i]) if len(i) > 1 else i[0] if i[0] == 'Ha' else i[0].lower()
     return i
 
 
+dialog = None
 def savetxt():
     """
     Description
@@ -316,33 +331,49 @@ def savetxt():
     None.
 
     """
+    global dialog
+
     dst = dst_check()
-    self_guide_var, guide_var, cycle_filter_var = truefalse_check()
     i = list_split(filter_)
     j = list_split(exposure_time)
     current_path = os.path.abspath(os.path.dirname(__file__))
+
+    if satellite_tracking.get() and name.get().upper() not in SATELLITES:
+        if not dialog:
+            dialog = DialogThread('Error: Satellite not found', 'Error: the specified satellite was not found in the catalog.\nCheck the target name. Try swapping dashes and spaces.')
+        return
+    elif dialog:
+        dialog.join()
+        dialog = None
+
+    observation_ticket = {
+        "type": "observation_ticket",
+        "details": {
+            "name": name.get(),
+            "ra": None if (r := ra.get()) == "None" else r,
+            "dec": None if (d := dec.get()) == "None" else d,
+            "start_time": start_time.get() + dst,
+            "end_time": end_time.get() + dst,
+            "filter": i,
+            "num": n_exposures.get(),
+            "exp_time": j,
+            "camera": camera.get(),
+            "self_guide": bool(self_guide.get()),
+            "guide": bool(guide.get()),
+            "cycle_filter": bool(cycle_filter.get()),
+            "satellite_tracking": bool(satellite_tracking.get()),
+            "satellite_tracking_mode": satellite_tracking_mode.get()
+        }
+    }
+
     with open(os.path.join(current_path, r'{}.json'.format(name.get())), 'w+') as f:
-        f.write('{\"type\": \"observation_ticket\",')
-        f.write('\n\"details\": {')
-        f.write('\n\t\"name\": \"{}\",'.format(name.get()))
-        f.write('\n\t\"ra\": \"{}\",'.format(ra.get()))
-        f.write('\n\t\"dec\": \"{}\",'.format(dec.get()))
-        f.write('\n\t\"start_time\": \"{}{}\",'.format(start_time.get(), dst))
-        f.write('\n\t\"end_time\": \"{}{}\",'.format(end_time.get(), dst))
-        f.write('\n\t\"filter\": {},'.format(i))
-        f.write('\n\t\"num\": {},'.format(n_exposures.get()))
-        f.write('\n\t\"exp_time\": {},'.format(j))
-        f.write('\n\t"camera": \"{}\",'.format(camera.get()))
-        f.write('\n\t\"self_guide\": {},'.format(self_guide_var))
-        f.write('\n\t\"guide\": {},'.format(guide_var))
-        f.write('\n\t\"cycle_filter\": {}'.format(cycle_filter_var))
-        f.write('\n\t}\n}')
+        json.dump(observation_ticket, f, indent=4)
 
 
 master = tk.Tk()
 # Creates window
 master.title('Observation Ticket Creator')
-master.geometry('1000x500')
+master.geometry('1000x600')
 
 box_labels()
 exampletxt()
@@ -354,13 +385,6 @@ if not toi_list:
     master.mainloop()
     exit()
 
-# Creates and places dropdown menu
-selection = tk.StringVar()
-obs_list = tk.OptionMenu(master, selection, *toi_list).grid(row=1, column=1)
-
-camera = tk.StringVar()
-camera_list = tk.OptionMenu(master, camera, 'CCD', 'NIR').grid(row=10, column=1)
-
 # Creates the input text boxes
 name = tk.Entry(master)
 ra = tk.Entry(master)
@@ -371,17 +395,34 @@ filter_ = tk.Entry(master)
 n_exposures = tk.Entry(master)
 exposure_time = tk.Entry(master)
 
-selection.set(toi_list[0])
-toi_list.insert(0, 'Observation List')
-target_grab()
+# Creates and places dropdown menu
+selection = tk.StringVar()
+obs_list = tk.OptionMenu(master, selection, *toi_list).grid(row=1, column=1)
+
+camera = tk.StringVar()
+camera_list = tk.OptionMenu(master, camera, 'CCD', 'NIR').grid(row=10, column=1)
+
+satellite_tracking = tk.IntVar()
+satellite_tracking_checkbox = tk.Checkbutton(master, text="Satellite Tracking", onvalue=1, offvalue=0, variable=satellite_tracking)
+satellite_tracking_checkbox.grid(row=14, column=1)
+
+satellite_tracking_mode = tk.IntVar()
+satellite_tracking_mode_options = tk.OptionMenu(master, satellite_tracking_mode, 0, 1, 2, 3)
+satellite_tracking_mode_options.grid(row=15, column=1)
+
 
 # Creates variables for check buttons
 self_guide = tk.IntVar()
 guide = tk.IntVar()
 cycle_filter = tk.IntVar()
 
+
+selection.set(toi_list[0])
+toi_list.insert(0, 'Observation List')
+target_grab()
+
+
 # Creates check buttons
-self_guide.set(1)
 b1 = tk.Checkbutton(master, text='Self Guide', onvalue=1, offvalue=0, variable=self_guide)
 b1.grid(row=11, column=1)
 b2 = tk.Checkbutton(master, text='Guide', onvalue=1, offvalue=0, variable=guide)
@@ -407,9 +448,10 @@ apply = tk.Button(master, text='Apply', command=savetxt)
 clear = tk.Button(master, text='Clear', command=clear_box)
 
 # Places the buttons in the window
-quit_.place(x=200, y=450)
-apply.place(x=270, y=450)
-clear.place(x=350, y=450)
+BOTTOM_Y = 550
+quit_.place(x=200, y=BOTTOM_Y)
+apply.place(x=270, y=BOTTOM_Y)
+clear.place(x=350, y=BOTTOM_Y)
 select.place(x=500, y=23)
 
 master.mainloop()
