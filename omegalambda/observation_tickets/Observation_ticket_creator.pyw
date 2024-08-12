@@ -197,7 +197,9 @@ def target_grab():
                 if "Tracking Mode" in google_sheet.columns:
                     tracking_mode_data = int(google_sheet['Tracking Mode'][x])
 
-        toi = target_toi.split(' ')[1]
+        toi = target_toi
+        if target_toi.startswith('TOI'):
+            toi = target_toi.split(' ')[1]
         info_chart_path = os.path.abspath(os.path.join(info_directory, 'info_chart.csv'))
         if not os.path.exists(info_chart_path) or datetime.datetime.now() - datetime.datetime.fromtimestamp(os.path.getmtime(info_chart_path)) > datetime.timedelta(hours=12):
             dialog = DialogThread('Downloading TOI info', 'Please wait...retrieving TOI information.\nThis may take up to 30 seconds.')
@@ -226,7 +228,7 @@ def target_grab():
         if xx.hour <= 12:
             day_end = str(start_date + datetime.timedelta(days=1))
         else:
-            day_start = str(start_date)
+            day_end = str(start_date)
         # all the information for the target
         begin = '{} {}'.format(day_start, time_s)
         end = '{} {}'.format(day_end, time_e)
@@ -355,7 +357,7 @@ def savetxt():
             "start_time": start_time.get() + dst,
             "end_time": end_time.get() + dst,
             "filter": i,
-            "num": n_exposures.get(),
+            "num": int(n_exposures.get()),
             "exp_time": j,
             "camera": camera.get(),
             "self_guide": bool(self_guide.get()),

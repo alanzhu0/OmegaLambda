@@ -154,8 +154,8 @@ class FocusProcedures(Hardware):
                 self.camera.start_exposing(exp_time, focuser_images_path, prefix, num_exposures=1)
                 path = filereader_utils.find_newest_image(focuser_images_path, prefix=prefix)
             else:
-                self.camera.onThread(self.camera.expose, exp_time, _filter, save_path=path, type="light")
                 path = os.path.join(focuser_images_path, image_name)
+                self.camera.onThread(self.camera.expose, exp_time, _filter, save_path=path, type="light")
                 self.camera.image_done.wait()
 
             time.sleep(2)
