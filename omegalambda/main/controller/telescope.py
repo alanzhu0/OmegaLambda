@@ -265,13 +265,13 @@ class Telescope(Hardware):
                 logging.error("ASCOM Error slewing to target.  You may safely ignore this warning.")
                 logging.exception(e)
             self._is_ready()
-            if abs(self.Telescope.RightAscension - ra) <= 0.05 and abs(self.Telescope.Declination - dec) <= 0.05:
+            if abs(self.Telescope.RightAscension - ra) <= 0.5 and abs(self.Telescope.Declination - dec) <= 0.5:
                 self.last_slew_status = True
             else:
                 self.last_slew_status = False
         self.slew_done.set()
         return self.last_slew_status
-    
+
     def get_ra_dec(self):
         return self.Telescope.RightAscension, self.Telescope.Declination
 
@@ -300,16 +300,22 @@ class Telescope(Hardware):
         -------
         None
         """
+        if abs(ra_rate) >= 360 or abs(dec_rate) >= 360:
+            logging.error(f'Tracking rates of ra={ra_rate}"/s and dec={dec_rate}"/s too high: must be less than 360"/s')
+            return
+
         self._is_ready()
         try:
             with self.movement_lock:
                 logging.info(f'Setting telescope tracking rates to ra={ra_rate}"/s and dec={dec_rate}"/s')
+                ra_rate = conversion_utils.convert_arcsec_to_ra_sec(ra_rate)
                 if convert_to_sidereal_sec:
-                    ra_rate = conversion_utils.convert_sec_to_sidereal_sec(ra_rate)
-                    dec_rate = conversion_utils.convert_sec_to_sidereal_sec(dec_rate)
-                self.Telescope.RightAscensionRate = ra_rate - 15  # 15 is sidereal rate
+                    ra_rate = conversion_utils.convert_sec_to_sidereal_sec(ra_rate)  # only ra needs to be converted
+                # ra_rate -= 1  # offset to sidereal: 15"/s -> 1s/s is sidereal rate
+                # The following 3 lines have to go in that exact order. No idea why.
                 self.Telescope.DeclinationRate = dec_rate
                 self.Telescope.Tracking = True
+                self.Telescope.RightAscensionRate = ra_rate
         except (AttributeError, pywintypes.com_error):
             logging.error('Could not set telescope tracking rates!')
 
@@ -321,7 +327,7 @@ class Telescope(Hardware):
         -------
         None
         """
-        self.set_ra_dec_rates(15, 0, convert_to_sidereal_sec=False)
+        self.set_ra_dec_rates(0, 0)
 
     def pulse_guide(self, direction, duration):
         """

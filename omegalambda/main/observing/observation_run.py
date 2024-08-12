@@ -464,7 +464,7 @@ class ObservationRun:
                 initial_shutter = self._startup_procedure(cooler=cooler)
 
             if ticket.satellite_tracking:
-                self.satellite = satellite_utils.build_satellite(ticket.satellite_name)
+                self.satellite = satellite_utils.build_satellite(ticket.name)
                 if self.satellite is None:
                     logging.error("Failed to build satellite object. Stopping observing.")
                     self.shutdown()
@@ -486,7 +486,8 @@ class ObservationRun:
                 time.sleep(10)
                 self.dome.move_done.wait()
             self.camera.cooler_settle.wait()
-            if self.focus_toggle:
+            if self.focus_toggle and not (ticket.satellite_tracking and self.focus_procedures.focused.is_set()):
+                logging.info(f"Focusing on target {ticket.name}")
                 self.focus_target(ticket)
 
             if not self.everything_ok():
