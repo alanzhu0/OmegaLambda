@@ -161,5 +161,8 @@ deprecated/
 /omegalambda/observation_tickets/toi_info/*.csv
 /omegalambda/observation_tickets/toi_info/info_chart.csv
 /omegalambda/observation_tickets/toi_info/google.csv
+/omegalambda/observation_tickets/toi_info/satellites.txt
 !/omegalambda/observation_tickets/toi_info/
 !/omegalambda/observation_tickets/url_config.json
+
+de421.bsp
