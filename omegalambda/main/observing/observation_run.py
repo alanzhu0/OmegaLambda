@@ -645,8 +645,10 @@ class ObservationRun:
 
         satellite_check_time = datetime.now()
 
-        if satellite_tracking and satellite_tracking_mode == 1:
-            self.satellite_tracking_mode_1_initialize()
+        if satellite_tracking:
+            name = f"{name}_Mode{satellite_tracking_mode}"
+            if satellite_tracking_mode == 2:
+                self.satellite_tracking_mode_2_initialize()
 
         if self.camera.cam_type == "NIR":
             i = -1
@@ -672,12 +674,12 @@ class ObservationRun:
 
                 if satellite_tracking:
                     if datetime.now() >= satellite_check_time:
-                        if satellite_tracking_mode in (2, 3):
+                        if satellite_tracking_mode in (1, 3):
                             self.camera.pause_exposing()
                             time.sleep(0.5)
                         wait_seconds = self.continuous_satellite_tracking_procedure(satellite_tracking_mode)
                         satellite_check_time = datetime.now() + timedelta(seconds=wait_seconds - 1)
-                        if satellite_tracking_mode in (2, 3):
+                        if satellite_tracking_mode in (1, 3):
                             self.camera.resume_exposing()
                     time.sleep(wait_seconds)
                 else:
@@ -711,7 +713,7 @@ class ObservationRun:
                 if satellite_tracking and datetime.now() >= satellite_check_time:
                     wait_seconds = self.continuous_satellite_tracking_procedure(satellite_tracking_mode)
                     satellite_check_time = datetime.now() + timedelta(seconds=wait_seconds)
-                    if satellite_tracking_mode != 1:
+                    if satellite_tracking_mode in (1, 3):
                         satellite_check_time -= timedelta(seconds=current_exp)
 
                 header_info_i = self.add_timed_header_info(header_info, name, current_exp, satellite_tracking)
@@ -722,7 +724,7 @@ class ObservationRun:
                 if self.crash_check("MaxIm_DL.exe"):
                     continue
 
-                if satellite_tracking and satellite_tracking_mode == 1:  # Continuously adjust the tracking rate for mode 1
+                if satellite_tracking and satellite_tracking_mode == 2:  # Continuously adjust the tracking rate for mode 2
                     cumulative_time = 0
                     while not self.camera.image_done.is_set():
                         time.sleep(0.1)
@@ -747,17 +749,17 @@ class ObservationRun:
                         image_num += 1
                 i += 1
 
-        if satellite_tracking and satellite_tracking_mode in (1, 3):
+        if satellite_tracking and satellite_tracking_mode in (2, 3):
             self.telescope.onThread(self.telescope.clear_ra_dec_rates)
 
         return i
 
-    def satellite_tracking_mode_1_initialize(self):
+    def satellite_tracking_mode_2_initialize(self):
         ra_rate, dec_rate = satellite_utils.get_ra_dec_rates(self.satellite)  # do this first since it takes a little time
         ra, dec = satellite_utils.get_ra_dec(self.satellite, self.slew_time_correction())
         self.telescope.onThread(self.telescope.slew, ra, dec)
         self.telescope.onThread(self.telescope.set_ra_dec_rates, ra_rate, dec_rate)
-        logging.info(f"Slewing to satellite position for tracking mode 1: RA={ra} Dec={dec}")
+        logging.info(f"Slewing to satellite position for tracking mode 2: RA={ra} Dec={dec}")
         self.telescope.slew_done.wait()
 
     def continuous_satellite_tracking_procedure(self, mode):
@@ -766,18 +768,18 @@ class ObservationRun:
 
         logging.debug(f"Satellite tracking mode {mode} - RA rate: {ra_rate}, Dec rate: {dec_rate}")
 
-        if mode == 1:  # Track satellite, stars streak
+        if mode == 2:  # Track satellite, stars streak
             self.telescope.onThread(self.telescope.set_ra_dec_rates, ra_rate, dec_rate)
             return 10
 
         calc_time = self.slew_time_correction(self.half_fov_time(ra_rate, dec_rate))
         ra, dec = satellite_utils.get_ra_dec(self.satellite, calc_time)
 
-        self.telescope.onThread(self.telescope.slew, ra, dec)  # Mode 2 and 3
+        self.telescope.onThread(self.telescope.slew, ra, dec)  # Modes 1 and 3
 
         logging.info(f"Slewing to capture satellite streak in tracking mode {mode}: RA={ra} Dec={dec}")
 
-        if mode == 2:
+        if mode == 1:
             self.telescope.slew_done.wait()
             return self.calc_satellite_fov_time(ra_rate, dec_rate)
 
