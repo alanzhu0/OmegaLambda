@@ -319,6 +319,11 @@ class Telescope(Hardware):
         except (AttributeError, pywintypes.com_error):
             logging.error('Could not set telescope tracking rates!')
 
+    def get_ra_dec_rates(self):
+        """Returns the current mount tracking rates in arcseconds per second."""
+        ra_rate = self.Telescope.RightAscensionRate * (1 / conversion_utils.ARCSEC_TO_RA_SEC) * (1 / conversion_utils.SEC_TO_SIDEREAL_SEC)
+        return ra_rate, self.Telescope.DeclinationRate
+
     def clear_ra_dec_rates(self):
         """
         Clears custom mount tracking rates, returning them to sidereal.

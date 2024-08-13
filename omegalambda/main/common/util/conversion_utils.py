@@ -332,10 +332,11 @@ def decimal(sexagesimal: str) -> float:
         return hh - mm/60 - ss/3600
 
 
-SEC_TO_SIDEREAl_SEC = 0.9972695677
+SEC_TO_SIDEREAL_SEC = 0.9972695677
 def convert_sec_to_sidereal_sec(seconds: float) -> float:
-    return seconds * SEC_TO_SIDEREAl_SEC
+    return seconds * SEC_TO_SIDEREAL_SEC
 
 
+ARCSEC_TO_RA_SEC = 1 / 15
 def convert_arcsec_to_ra_sec(arcsec: float) -> float:
-    return arcsec / 15
+    return arcsec * ARCSEC_TO_RA_SEC

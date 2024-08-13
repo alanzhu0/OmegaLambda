@@ -287,6 +287,11 @@ class ObservationRun:
         """
 
         if ticket.satellite_tracking:
+            self.satellite = satellite_utils.build_satellite(ticket.name)
+            if self.satellite is None:
+                logging.error("Failed to build satellite object. Stopping observing.")
+                self.shutdown()
+                return
             ra, dec = satellite_utils.get_ra_dec(self.satellite)
             ra, dec = conversion_utils.convert_apparent_to_j2000(ra, dec)
             ticket.ra = ra
@@ -463,19 +468,6 @@ class ObservationRun:
             if shutdown:
                 initial_shutter = self._startup_procedure(cooler=cooler)
 
-            if ticket.satellite_tracking:
-                self.satellite = satellite_utils.build_satellite(ticket.name)
-                if self.satellite is None:
-                    logging.error("Failed to build satellite object. Stopping observing.")
-                    self.shutdown()
-                    return
-                ra, dec = satellite_utils.get_ra_dec(self.satellite)
-                ra, dec = conversion_utils.convert_apparent_to_j2000(ra, dec)
-                ticket.ra = ra
-                ticket.dec = dec
-            else:
-                self.satellite = None
-
             if not self._ticket_slew(ticket):
                 self.shutdown()
                 return
@@ -648,7 +640,7 @@ class ObservationRun:
         if satellite_tracking:
             name = f"{name}_Mode{satellite_tracking_mode}"
             if satellite_tracking_mode == 2:
-                self.satellite_tracking_mode_2_initialize()
+                self.satellite_tracking_mode_2_slew()
 
         if self.camera.cam_type == "NIR":
             i = -1
@@ -754,7 +746,7 @@ class ObservationRun:
 
         return i
 
-    def satellite_tracking_mode_2_initialize(self):
+    def satellite_tracking_mode_2_slew(self):
         ra_rate, dec_rate = satellite_utils.get_ra_dec_rates(self.satellite)  # do this first since it takes a little time
         ra, dec = satellite_utils.get_ra_dec(self.satellite, self.slew_time_correction())
         self.telescope.onThread(self.telescope.slew, ra, dec)
@@ -769,8 +761,17 @@ class ObservationRun:
         logging.debug(f"Satellite tracking mode {mode} - RA rate: {ra_rate}, Dec rate: {dec_rate}")
 
         if mode == 2:  # Track satellite, stars streak
-            self.telescope.onThread(self.telescope.set_ra_dec_rates, ra_rate, dec_rate)
-            return 10
+            ra, dec = satellite_utils.get_ra_dec(self.satellite)
+            telescope_ra, telescope_dec = self.telescope.get_ra_dec()
+            telescope_ra_rate, telescope_dec_rate = self.telescope.get_ra_dec_rates()
+            error = max(2 * self.camera.fov, 5) / 60  # 5 arcmin or twice the FOV (to account for pointing), whichever is larger.
+            if abs(telescope_ra - ra) >= error or abs(telescope_dec - dec) >= error:
+                logging.info(f"Telescope pointing is off from the satellite position by more than {error * 60} arcmin.")
+                self.satellite_tracking_mode_2_slew()
+                return 60
+            if abs(telescope_ra_rate - ra_rate) >= 0.0005 or abs(telescope_dec_rate - dec_rate) >= 0.0005:
+                self.telescope.onThread(self.telescope.set_ra_dec_rates, ra_rate, dec_rate)
+            return 15
 
         calc_time = self.slew_time_correction(self.half_fov_time(ra_rate, dec_rate))
         ra, dec = satellite_utils.get_ra_dec(self.satellite, calc_time)
