@@ -55,7 +55,7 @@ def exampletxt():
     tk.Label(master, text='Enable 3rd party guiding').grid(row=12, column=2)
     tk.Label(master, text='Cycle filter after each science image').grid(row=13, column=2)
     tk.Label(master, text='Enable satellite tracking').grid(row=14, column=2)
-    tk.Label(master, text="Satellite tracking mode. 0: Disabled\n1: Satellite tracking; 2: Sidereal tracking; 3: Half-rate tracking").grid(row=15, column=2)
+    tk.Label(master, text="Satellite tracking mode. 0: Disabled\n1: Sidereal tracking; 2: Satellite tracking; 3: Half-rate tracking").grid(row=15, column=2)
 
 
 def quit_func():

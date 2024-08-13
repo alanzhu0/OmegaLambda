@@ -52,8 +52,8 @@ class ObservationTicket:
         satellite_tracking_mode : INT, optional
             Satellite tracking - Landolt mission observing modes
             0: Satellite tracking disabled
-            1: Track satellite, stars streak
-            2: Track stars, satellite streaks
+            1: Track stars (sidereal rate), satellite streaks
+            2: Track satellite, stars streak
             3: Track satellite at half rate, both stars and satellite streak
 
         Returns
