@@ -176,9 +176,9 @@ class Dome(Hardware):
                 time.sleep(2)
             t = 0
             while self.Dome.ShutterStatus in (1, 2, 4):
-                time.sleep(5)
-                t += 5
-                if t >= 5*60:
+                time.sleep(1)
+                t += 1
+                if t >= 2*60:
                     logging.warning('Shutter is still opening...ASCOM may be incorrectly reporting status.')
                     break
             # time.sleep(2)
@@ -194,9 +194,9 @@ class Dome(Hardware):
                 time.sleep(2)
             t = 0
             while self.Dome.ShutterStatus in (0, 3, 4):
-                time.sleep(5)
-                t += 5
-                if t >= 5*60:
+                time.sleep(1)
+                t += 1
+                if t >= 2*60:
                     logging.warning('Shutter is still closing...ASCOM may be incorrectly reporting status.')
                     break
             # time.sleep(2)
