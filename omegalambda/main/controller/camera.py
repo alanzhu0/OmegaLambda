@@ -149,10 +149,10 @@ class Camera(Hardware):
                     self.Camera.TemperatureSetpoint += 1
                 else:
                     self.Camera.TemperatureSetpoint += 0.5
-                print("Cooler Setpoint adjusted to {0:.1f} C".format(self.Camera.TemperatureSetpoint))
+                logging.info("Cooler Setpoint adjusted to {0:.1f} C".format(self.Camera.TemperatureSetpoint))
             elif t_diff <= -0.5:
                 self.Camera.TemperatureSetpoint -= 0.5
-                print("Cooler Setpoint adjusted to {0:.1f} C".format(self.Camera.TemperatureSetpoint))
+                logging.info("Cooler Setpoint adjusted to {0:.1f} C".format(self.Camera.TemperatureSetpoint))
             else:
                 pass
 
