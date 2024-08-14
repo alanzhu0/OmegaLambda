@@ -65,7 +65,11 @@ def quit_func():
     Defines the function for the quit button,
     saves the inputted text then closes the window
     """
-    savetxt()
+    if dialog:
+        time.sleep(2)
+        dialog.join()
+    if dialog_2:
+        dialog_2.join()
     master.quit()
 
 
@@ -105,7 +109,7 @@ def check_toi():
             if row[0] == str(start_date):
                 toi_tonight = row[2]
     if toi_tonight:
-        tk.Label(master, text="Tonight's TOI is {}".format(toi_tonight), font=('Courier', 12)).grid(row=0, column=1)
+        tk.Label(master, text="Tonight's target is {}".format(toi_tonight), font=('Courier', 12)).grid(row=0, column=1)
     else:
         tk.Label(master, text='No target specified for tonight', font=('Courier', 12)).grid(row=0, column=1)
 
@@ -179,27 +183,28 @@ def target_grab():
         input_info = selection.get().split(': ')
         clear_box()
         start_date = datetime.datetime.strptime(input_info[0], '%Y-%m-%d').date()
-        target_toi = input_info[1]
+        target = input_info[1]
         google_sheet = pandas.read_csv(google_path)
 
-        for x in range(0, len(google_sheet['NoD'])):
-            if str(start_date) == str(google_sheet['NoD'][x]) and str(google_sheet['Target'][x]) == target_toi:
-                obs_start = str(google_sheet['Start'][x])
-                obs_end = str(google_sheet['End'][x])
-                filter_input = str(google_sheet['Filter'][x])
-                exposure = str(google_sheet['Exp'][x])
-                if "Camera" in google_sheet.columns:
-                    selected_cam = str(google_sheet['Camera'][x])
-                else:
-                    selected_cam = "CCD"
-                if "Satellite Tracking" in google_sheet.columns:
-                    satellite_tracking_data = int(google_sheet['Satellite Tracking'][x])
-                if "Tracking Mode" in google_sheet.columns:
-                    tracking_mode_data = int(google_sheet['Tracking Mode'][x])
+        x = int(target.split('_')[-1][1:])
+        target_name = str(google_sheet['Target'][x])
+        obs_start = str(google_sheet['Start'][x])
+        obs_end = str(google_sheet['End'][x])
+        filter_input = str(google_sheet['Filter'][x])
+        exposure = str(google_sheet['Exp'][x])
+        if "Camera" in google_sheet.columns:
+            selected_cam = str(google_sheet['Camera'][x])
+        else:
+            selected_cam = "CCD"
+        if "Satellite Tracking" in google_sheet.columns:
+            satellite_tracking_data = int(google_sheet['Satellite Tracking'][x])
+        if "Tracking Mode" in google_sheet.columns:
+            tracking_mode_data = int(google_sheet['Tracking Mode'][x])
 
-        toi = target_toi
-        if target_toi.startswith('TOI'):
-            toi = target_toi.split(' ')[1]
+        toi = target_name
+        if toi.startswith('TOI'):
+            toi = toi.replace(" ", "").replace("TOI", "")
+            target_name = target_name.replace(" ", "").replace(".", "-")
         info_chart_path = os.path.abspath(os.path.join(info_directory, 'info_chart.csv'))
         if not os.path.exists(info_chart_path) or datetime.datetime.now() - datetime.datetime.fromtimestamp(os.path.getmtime(info_chart_path)) > datetime.timedelta(hours=12):
             dialog = DialogThread('Downloading TOI info', 'Please wait...retrieving TOI information.\nThis may take up to 30 seconds.')
@@ -232,15 +237,13 @@ def target_grab():
         # all the information for the target
         begin = '{} {}'.format(day_start, time_s)
         end = '{} {}'.format(day_end, time_e)
-        tonight_toi = target_toi
-        if target_toi.startswith('TOI'):
-            tonight_toi = target_toi.replace(r' ', '').replace(r'.', '-')
+
         exposure = exposure.replace('s', '')
         filter_input = str(filter_input)
         num_exposures = 100000
 
         # Inserts the target info into the text boxes
-        name.insert(10, str(tonight_toi))
+        name.insert(10, str(target_name))
         ra.insert(10, str(ra_coord))
         dec.insert(10, str(dec_coord))
         start_time.insert(10, str(begin))
@@ -267,17 +270,21 @@ def create_list():
         List of targets in list format. Ex: YYYY-MM-DD: TOI 1234.01
     '''
     current_date = datetime.date.today()
-    num = 0
     future_toi_list = []
     sheet = pandas.read_csv(google_path)
 
-    for x in range(0, len(sheet)):
-        if num < 11 and str(sheet['Target'][x]) != 'nan' and str(
-                sheet['NoD'][x]) != 'nan':  # There might be empty date spaces at the end of the csv
-            row_date = datetime.datetime.strptime(str(sheet['NoD'][x]), '%Y-%m-%d').date()
-            if row_date >= current_date and sheet['Target'][x] != 'NaN':
-                future_toi_list.append('{}: {}'.format(row_date, sheet['Target'][x]))
-                num += 1
+    for x in range(len(sheet)):
+        target = str(sheet['Target'][x])
+        if target.startswith("TOI"):
+            target = target.replace(r" ", "").replace(r".", "-")
+        nod = str(sheet['NoD'][x])
+        if target != 'nan' and nod != 'nan':  # There might be empty date spaces at the end of the csv
+            row_date = datetime.datetime.strptime(nod, '%Y-%m-%d').date()
+            if row_date >= current_date and target != 'NaN':
+                enable_sat_tracking = sheet['Satellite Tracking'][x]
+                sat_mode = f"_Mode{sheet['Tracking Mode'][x]}" if enable_sat_tracking else ""
+                display_name = f"{target}_{sheet['Start'][x]}{sat_mode}_{sheet['Exp'][x]}_{sheet['Filter'][x]}_#{x}"
+                future_toi_list.append('{}: {}'.format(row_date, display_name))
     return future_toi_list
 
 
@@ -342,7 +349,7 @@ def savetxt():
 
     if satellite_tracking.get() and name.get().upper() not in SATELLITES:
         if not dialog:
-            dialog = DialogThread('Error: Satellite not found', 'Error: the specified satellite was not found in the catalog.\nCheck the target name. Try swapping dashes and spaces.')
+            dialog = DialogThread('Error: Satellite not found', f'Error: the specified satellite "{name.get()}" was not found in the catalog.\nCheck the target name. Try swapping dashes and spaces.')
         return
     elif dialog:
         dialog.join()
@@ -368,14 +375,66 @@ def savetxt():
         }
     }
 
-    with open(os.path.join(current_path, r'{}.json'.format(name.get())), 'w+') as f:
+    with open(os.path.join(current_path, selection.get().split(": ")[1].replace(':', '') + ".json"), 'w+') as f:
         json.dump(observation_ticket, f, indent=4)
+
+
+def save_all():
+    """Save all of the targets in the list"""
+    for target in toi_list[1:]:
+        selection.set(target)
+        target_grab()
+        savetxt()
+        print("Saved target:", target)
+
+
+dialog_2 = None
+def save_all_auto_folders():
+    """
+    Save all the targets in the list and automatically make folders for the targets in the list. 
+    The folders will be named by date: YYYYMMDD
+    """
+    global dialog_2
+
+    for target in toi_list[1:]:
+        selection.set(target)
+        target_grab()
+        savetxt()
+        current_path = os.path.abspath(os.path.dirname(__file__))
+        target_name = target.split(": ")[1].replace(':', '')
+        target_path = os.path.join(current_path, target_name + ".json")
+        with open(target_path, 'r') as f:
+            target_info = json.load(f)
+        start_time = datetime.datetime.strptime(target_info["details"]["start_time"].replace(dst_check(), ""), "%Y-%m-%d %H:%M:%S")
+        folder_name = start_time.strftime("%Y%m%d")
+        folder_path = os.path.join(current_path, folder_name)
+        if not os.path.exists(folder_path):
+            os.mkdir(folder_path)
+        if not os.path.exists(os.path.join(folder_path, target_name + ".json")):
+            os.rename(target_path, os.path.join(folder_path, target_name + ".json"))
+        else:
+            os.remove(target_path)
+        print("Saved target:", target)
+        auto_make_folders["state"] = "disabled"
+    
+    tonight = datetime.date.today() if datetime.datetime.now().hour >= 12 else datetime.date.today() - datetime.timedelta(days=1)
+    command = f"python -m omegalambda run {os.path.join(current_path, tonight.strftime('%Y%m%d'))}".replace("\\", "/")
+    master.clipboard_clear()
+    master.clipboard_append(command)
+    dialog_2 = DialogThread(
+        'Saved all targets into folders', 
+        f"""All targets have been saved and placed into folders by date.
+        The following command to run OmegaLambda on tonight's folder has been copied to the clipboard:
+        {command}
+        Click Quit to exit the program.
+        """
+    )
 
 
 master = tk.Tk()
 # Creates window
 master.title('Observation Ticket Creator')
-master.geometry('1000x600')
+master.geometry('1100x600')
 
 box_labels()
 exampletxt()
@@ -445,6 +504,8 @@ exposure_time.grid(row=9, column=1)
 # Creates Quit, Apply, Clear buttons
 
 select = tk.Button(master, text='Select', command=target_grab)
+saveall = tk.Button(master, text='Save All', command=save_all)
+auto_make_folders = tk.Button(master, text='Save All into Folders by Date', command=save_all_auto_folders)
 quit_ = tk.Button(master, text='Quit', command=quit_func)
 apply = tk.Button(master, text='Apply', command=savetxt)
 clear = tk.Button(master, text='Clear', command=clear_box)
@@ -454,6 +515,8 @@ BOTTOM_Y = 550
 quit_.place(x=200, y=BOTTOM_Y)
 apply.place(x=270, y=BOTTOM_Y)
 clear.place(x=350, y=BOTTOM_Y)
-select.place(x=500, y=23)
+select.place(x=600, y=23)
+saveall.place(x=700, y=23)
+auto_make_folders.place(x=800, y=23)
 
 master.mainloop()
