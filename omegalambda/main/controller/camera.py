@@ -308,6 +308,7 @@ class NIRCamera(Camera):
         return
 
     def _class_connect(self):
+        self.check_connection()
         return True
 
     def cooler_set(self, toggle):
@@ -331,7 +332,7 @@ class NIRCamera(Camera):
         return
 
     def _write_capture_code_config(self, config):
-        with open(join(self.current_dir, "cred2_capture_config.json"), "w") as f:
+        with open(join(self.current_dir, "cred2", "cred2_capture_config.json"), "w") as f:
             json.dump(config, f, indent=4)
         logging.info("CRED2 capture code configuration file written.")
 
@@ -339,10 +340,10 @@ class NIRCamera(Camera):
         if self.proc is not None:
             logging.info("Terminating previous CRED2 capture code process...")
             self.disconnect()
-        self.proc = subprocess.Popen([sys.executable, join(self.current_dir, "cred2_capture.py"), *cmd_args])
+        self.proc = subprocess.Popen([sys.executable, join(self.current_dir, "cred2", "cred2_capture.py"), *cmd_args])
         logging.info("NIR Camera connected. CRED2 capture code process started.")
 
-    def start_exposing(self, exposure_time, save_dir, name, calibration=None, num_exposures=None):
+    def start_exposing(self, exposure_time, save_dir, name, calibration=None, num_exposures=None, wait_for_cooler=True):
         """
         Starts continuously exposing images using the NIR camera. Runs the capture code in a separate process.
         Pass 'flats' or 'darks' to the calibration parameter to take calibration images.
@@ -351,13 +352,12 @@ class NIRCamera(Camera):
 
         config = {
             "total_run_time_seconds": 0.0,  # Continuous
-            "frame_time_seconds": None,  # Use the default set by the code
             "image_stack_time_seconds": float(exposure_time),
             "take_calibration_images": False,
             "data_directory": save_dir,
             "filename_prefix": name + "-",
             "enable_compression": None,
-            "wait_for_cooler_settle": True,
+            "wait_for_cooler_settle": wait_for_cooler,
         }
 
         if num_exposures:
@@ -379,14 +379,14 @@ class NIRCamera(Camera):
 
     def pause_exposing(self):
         if self.proc is not None:
-            self.proc.send_signal(signal.SIGUSR1)
+            self.proc.send_signal(signal.SIGABRT)
             logging.info("NIR camera captures paused.")
         else:
             logging.warning("NIR camera is not connected. Cannot pause.")
     
     def resume_exposing(self):
         if self.proc is not None:
-            self.proc.send_signal(signal.SIGUSR2)
+            self.proc.send_signal(signal.SIGILL)
             logging.info("NIR camera captures resumed.")
         else:
             logging.warning("NIR camera is not connected. Cannot resume.")

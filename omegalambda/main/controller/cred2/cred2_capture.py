@@ -10,6 +10,7 @@ import psutil
 import queue
 import signal
 import subprocess
+import sys
 import threading
 from tqdm import tqdm
 from time import sleep
@@ -35,7 +36,7 @@ TEMP_THRESHOLD: float = 0.5  # Celsius. Temperature threshold for cooler to reac
 FRAME_TIME: float = 0.04  # Seconds. Optimal individual frame exposure time for CRED2 camera.
 TIME_SCALE_FACTOR: float = 36.0  # Because we don't get accurate frame rates (much higher than expected), compensate for it by increasing the stack time (empirically determined).
 
-CONFIG_FILE: str = "cred2_capture_config.json"
+CONFIG_FILE: str = os.path.join(os.path.dirname(__file__), "cred2_capture_config.json")
 """Example config file:
 {
     "total_run_time_seconds": 0.0,
@@ -70,8 +71,8 @@ if os.path.exists(CONFIG_FILE):
 
 ########## Calculated parameters ##########
 IMAGE_STACK_SIZE: int = int(IMAGE_STACK_TIME / FRAME_TIME)  # Number of images to stack for each stacked image. 1 for no stacking.
-NUM_IMAGES = int(TOTAL_RUN_TIME / IMAGE_STACK_TIME)  # Number of images to capture.
-CONTINUOUS_CAPTURE: bool = TOTAL_RUN_TIME == 0  # If True, will capture images continuously until stopped
+NUM_IMAGES = max(int(TOTAL_RUN_TIME / IMAGE_STACK_TIME), 1)  # Number of images to capture.
+CONTINUOUS_CAPTURE: bool = TOTAL_RUN_TIME == 0.0  # If True, will capture images continuously until stopped
 FPS: float = 1 / FRAME_TIME
 FITS_HEADER: dict[str, str | float] = {  # For FITS headers
     "ORIGIN": "George Mason University Observatory",
@@ -401,8 +402,8 @@ def display_thread() -> None:
 def main() -> None:
     signal.signal(signal.SIGINT, stop_threads)
     signal.signal(signal.SIGTERM, stop_threads)
-    signal.signal(signal.SIGUSR1, pause_captures)  # Send SIGUSR1 to pause captures 
-    signal.signal(signal.SIGUSR2, resume_captures)  # Send SIGUSR2 to resume captures
+    signal.signal(signal.SIGABRT, pause_captures)  # Send SIGABRT to pause captures 
+    signal.signal(signal.SIGILL, resume_captures)  # Send SIGILL to resume captures
 
     connect()
     setup()
@@ -436,8 +437,8 @@ def main() -> None:
         print('-' * 40)
         print("Capturing images.")
         print(f"Number of images: {NUM_IMAGES}.")
-        print(f"Total run time: {NUM_IMAGES * IMAGE_STACK_TIME} seconds.")
-        print(f"Stacked exposure time: {IMAGE_STACK_TIME} seconds.")
+        print(f"Total run time: {NUM_IMAGES * (IMAGE_STACK_TIME / TIME_SCALE_FACTOR)} seconds.")
+        print(f"Stacked exposure time: {IMAGE_STACK_TIME / TIME_SCALE_FACTOR} seconds.")
         print(f"Individual frame exposure time: {FRAME_TIME} seconds ({FPS} FPS).")
         print("Press CTRL+C to stop capturing images prematurely.")
         print()
