@@ -54,8 +54,9 @@ def exampletxt():
     tk.Label(master, text='Enable self guiding. Disabled if satellite tracking is enabled.').grid(row=11, column=2)
     tk.Label(master, text='Enable 3rd party guiding').grid(row=12, column=2)
     tk.Label(master, text='Cycle filter after each science image').grid(row=13, column=2)
-    tk.Label(master, text='Enable satellite tracking').grid(row=14, column=2)
-    tk.Label(master, text="Satellite tracking mode. 0: Disabled\n1: Sidereal tracking; 2: Satellite tracking; 3: Half-rate tracking").grid(row=15, column=2)
+    tk.Label(master, text='Enable automatic coarse focus').grid(row=14, column=2)
+    tk.Label(master, text='Enable satellite tracking').grid(row=15, column=2)
+    tk.Label(master, text="Satellite tracking mode. 0: Disabled\n1: Sidereal tracking; 2: Satellite tracking; 3: Half-rate tracking").grid(row=16, column=2)
 
 
 def quit_func():
@@ -370,6 +371,7 @@ def savetxt():
             "self_guide": bool(self_guide.get()),
             "guide": bool(guide.get()),
             "cycle_filter": bool(cycle_filter.get()),
+            "initial_focus": bool(initial_focus.get()),
             "satellite_tracking": bool(satellite_tracking.get()),
             "satellite_tracking_mode": satellite_tracking_mode.get()
         }
@@ -465,17 +467,19 @@ camera_list = tk.OptionMenu(master, camera, 'CCD', 'NIR').grid(row=10, column=1)
 
 satellite_tracking = tk.IntVar()
 satellite_tracking_checkbox = tk.Checkbutton(master, text="Satellite Tracking", onvalue=1, offvalue=0, variable=satellite_tracking)
-satellite_tracking_checkbox.grid(row=14, column=1)
+satellite_tracking_checkbox.grid(row=15, column=1)
 
 satellite_tracking_mode = tk.IntVar()
 satellite_tracking_mode_options = tk.OptionMenu(master, satellite_tracking_mode, 0, 1, 2, 3)
-satellite_tracking_mode_options.grid(row=15, column=1)
+satellite_tracking_mode_options.grid(row=16, column=1)
 
 
 # Creates variables for check buttons
 self_guide = tk.IntVar()
 guide = tk.IntVar()
 cycle_filter = tk.IntVar()
+initial_focus = tk.IntVar()
+initial_focus.set(1)
 
 
 selection.set(toi_list[0])
@@ -490,6 +494,8 @@ b2 = tk.Checkbutton(master, text='Guide', onvalue=1, offvalue=0, variable=guide)
 b2.grid(row=12, column=1)
 b3 = tk.Checkbutton(master, text='Cycle Filter', onvalue=1, offvalue=0, variable=cycle_filter)
 b3.grid(row=13, column=1)
+b4 = tk.Checkbutton(master, text='Initial Focus', onvalue=1, offvalue=0, variable=initial_focus)
+b4.grid(row=14, column=1)
 
 # Places text boxes in the window
 name.grid(row=2, column=1)

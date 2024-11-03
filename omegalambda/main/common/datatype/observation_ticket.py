@@ -13,8 +13,8 @@ class ObservationTicket:
                  end_time: Optional[str] = None, _filter: Optional[Union[str, List[str]]] = None,
                  num: Optional[int] = None, exp_time: Optional[Union[float, int, List[Union[float, int]]]] = None,
                  camera: Optional[str] = None, self_guide: Optional[bool] = None, guide: Optional[bool] = None, 
-                 cycle_filter: Optional[bool] = None, satellite_tracking: Optional[bool] = None,
-                 satellite_tracking_mode: Optional[int] = None):
+                 cycle_filter: Optional[bool] = None, initial_focus: Optional[bool] = None,
+                 satellite_tracking: Optional[bool] = None, satellite_tracking_mode: Optional[int] = None):
         """
 
         Parameters
@@ -47,6 +47,8 @@ class ObservationTicket:
         cycle_filter : BOOL, optional
             If true, filter will cycle after each exposure, if False filter will
             cycle after number specified in num parameter. The default is None.
+        initial_focus : BOOL, optional
+            If True, the camera will focus on the target before starting the observation. The default is None.
         satellite_tracking : BOOL, optional
             If True, the telescope will track the satellite specified in `name`. The default is None.
         satellite_tracking_mode : INT, optional
@@ -99,6 +101,7 @@ class ObservationTicket:
         self.self_guide: bool = self_guide
         self.guide: bool = guide
         self.cycle_filter: bool = cycle_filter
+        self.initial_focus: bool = initial_focus
         self.satellite_tracking: bool = satellite_tracking
         self.satellite_tracking_mode: int = satellite_tracking_mode
 
@@ -199,5 +202,5 @@ def _dict_to_obs_object(dic: Dict) -> ObservationTicket:
     return ObservationTicket(name=dic['name'], ra=dic['ra'], dec=dic['dec'], start_time=dic['start_time'],
                              end_time=dic['end_time'], _filter=dic['filter'], num=dic['num'], exp_time=dic['exp_time'],
                              camera=dic.get('camera', 'CCD'), self_guide=dic['self_guide'], guide=dic['guide'], 
-                             cycle_filter=dic['cycle_filter'], satellite_tracking=dic['satellite_tracking'],
-                             satellite_tracking_mode=dic['satellite_tracking_mode'])
+                             cycle_filter=dic['cycle_filter'], initial_focus=dic['initial_focus'],
+                             satellite_tracking=dic['satellite_tracking'], satellite_tracking_mode=dic['satellite_tracking_mode'])
