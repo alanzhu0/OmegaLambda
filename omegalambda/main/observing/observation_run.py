@@ -528,20 +528,22 @@ class ObservationRun:
             focus_exposure = 30
         self.focus_procedures.stop_initial_focusing()
         self.focus_procedures.stop_constant_focusing()
-        time.sleep(1)
-        self.focus_procedures.onThread(self.focus_procedures.startup_focus_procedure, focus_exposure,
-                                       self.filterwheel_dict[focus_filter], self.image_directories[ticket])
-        time.sleep(1)
-        i = 0
-        while not self.focus_procedures.focused.isSet():
-            check = self.everything_ok()
-            if not check:
-                self.focus_procedures.stop_initial_focusing()
-                break
-            time.sleep(10)
-            i += 1
-            if i % 30 == 0:
-                logging.debug(f'Still waiting for coarse focus to finish...; t = {(i*10)//60} mins')
+
+        if ticket.initial_focus:
+            time.sleep(1)
+            self.focus_procedures.onThread(self.focus_procedures.startup_focus_procedure, focus_exposure, 
+                                           self.filterwheel_dict[focus_filter], self.image_directories[ticket])
+            time.sleep(1)
+            i = 0
+            while not self.focus_procedures.focused.isSet():
+                check = self.everything_ok()
+                if not check:
+                    self.focus_procedures.stop_initial_focusing()
+                    break
+                time.sleep(10)
+                i += 1
+                if i % 30 == 0:
+                    logging.debug(f'Still waiting for coarse focus to finish...; t = {(i*10)//60} mins')
 
     def run_ticket(self, ticket):
         """
