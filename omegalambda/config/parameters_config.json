@@ -36,6 +36,8 @@
 	"data_directory": "H:/Observatory Files/Observing Sessions/",
 	"calibration_time": "end",
 	"calibration_num": 10,
-	"default_camera": "CCD"
+	"default_camera": "CCD",
+	"slew_offset_ra": -0.011148056,
+	"slew_offset_dec": -0.160044445
 	}
 }

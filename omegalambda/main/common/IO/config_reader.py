@@ -28,7 +28,8 @@ class Config:
                  guiding_threshold: Optional[float] = None, guider_ra_dampening: Optional[float] = None,
                  guider_dec_dampening: Optional[float] = None, guider_max_move: Optional[float] = None,
                  guider_angle: Optional[float] = None, guider_flip_y: Optional[bool] = None, data_directory: Optional[str] = None,
-                 calibration_time: Optional[str] = None, calibration_num: Optional[int] = None, default_camera: Optional[str] = None):
+                 calibration_time: Optional[str] = None, calibration_num: Optional[int] = None, default_camera: Optional[str] = None,
+                 slew_offset_ra: Optional[float] = None, slew_offset_dec: Optional[float] = None):
         """
 
         Parameters
@@ -130,6 +131,10 @@ class Config:
             the flat exposure time and the other to match the science exposure time.  Our default is 10.
         default_camera : STR, optional
             The default camera to use for imaging. One of "CCD" or "NIR".
+        slew_offset_ra : FLOAT, optional
+            Offset in RA for the telescope to slew to.
+        slew_offset_dec : FLOAT, optional
+            Offset in Dec for the telescope to slew to.
 
         Returns
         -------
@@ -213,6 +218,8 @@ class Config:
         self.calibration_time = calibration_time
         self.calibration_num: int = calibration_num
         self.default_camera = default_camera
+        self.slew_offset_ra = slew_offset_ra
+        self.slew_offset_dec = slew_offset_dec
         self.verify()
 
     def verify(self):
@@ -323,7 +330,8 @@ def _dict_to_config_object(dic: Dict) -> Config:
                      guider_ra_dampening=dic['guider_ra_dampening'], guider_dec_dampening=dic['guider_dec_dampening'],
                      guider_max_move=dic['guider_max_move'], guider_angle=dic['guider_angle'], guider_flip_y=dic['guider_flip_y'],
                      data_directory=dic['data_directory'], calibration_time=dic['calibration_time'],
-                     calibration_num=dic['calibration_num'], default_camera=dic['default_camera'])
+                     calibration_num=dic['calibration_num'], default_camera=dic['default_camera'],
+                     slew_offset_ra=dic['slew_offset_ra'], slew_offset_dec=dic['slew_offset_dec'])
     logging.info('Global config object has been created')
     return _config
 
