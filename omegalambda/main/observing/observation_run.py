@@ -656,6 +656,8 @@ class ObservationRun:
                 num_exposures=None if num == 100000 else num,
             )
 
+            time.sleep(5)
+
             while True:
                 logging.debug("In NIR cam monitoring loop")
                 if end_time <= datetime.now(self.tz):

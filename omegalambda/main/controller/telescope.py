@@ -209,7 +209,7 @@ class Telescope(Hardware):
             logging.info("Telescope is unparked, tracking on")
             return True
 
-    def slew(self, ra, dec, tracking=True, coord_check_delay_ms=0, convert_to_apparent=True):
+    def slew(self, ra, dec, tracking=True, coord_check_delay_ms=0, convert_to_apparent=True, apply_offsets=True):
         """
 
         Parameters
@@ -234,6 +234,9 @@ class Telescope(Hardware):
         if convert_to_apparent:
             (ra, dec) = conversion_utils.convert_j2000_to_apparent(ra, dec)
         # Telescope internally uses apparent epoch coordinates, but we input in J2000
+        if apply_offsets:
+            ra += self.config_dict.slew_offset_ra
+            dec += self.config_dict.slew_offset_dec
         if self.__check_coordinate_limit(ra, dec, verbose=1) is False:
             logging.error("Coordinates are outside of physical slew limits.")
             self.last_slew_status = False
