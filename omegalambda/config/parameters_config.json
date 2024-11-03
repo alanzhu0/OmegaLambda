@@ -37,7 +37,7 @@
 	"calibration_time": "end",
 	"calibration_num": 10,
 	"default_camera": "CCD",
-	"slew_offset_ra": -0.011148056,
-	"slew_offset_dec": -0.160044445
+	"slew_offset_ra": 0.0,
+	"slew_offset_dec": 0.0
 	}
 }

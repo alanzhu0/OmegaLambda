@@ -94,7 +94,7 @@ class Calibration(Hardware):
 
         if self.camera.cam_type == "NIR":
             self.camera.start_exposing(
-                float(ticket.exp_time),
+                float(ticket.exp_time if type(ticket.exp_time) in (float, int) else ticket.exp_time[0]),
                 flats_path,
                 ticket.name,
                 calibration="flats"
@@ -181,7 +181,7 @@ class Calibration(Hardware):
 
         if self.camera.cam_type == "NIR":
             self.camera.start_exposing(
-                float(ticket.exp_time),
+                float(ticket.exp_time if type(ticket.exp_time) in (float, int) else ticket.exp_time[0]),
                 darks_path,
                 ticket.name,
                 calibration="darks"
