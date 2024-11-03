@@ -151,7 +151,7 @@ class FocusProcedures(Hardware):
             self.focuser.onThread(self.focuser.current_position)
 
             if self.camera.cam_type == "NIR":
-                self.camera.start_exposing(exp_time, focuser_images_path, prefix, num_exposures=1)
+                self.camera.start_exposing(exp_time, focuser_images_path, prefix, num_exposures=1, wait_for_cooler=False)
                 path = filereader_utils.find_newest_image(focuser_images_path, prefix=prefix)
             else:
                 path = os.path.join(focuser_images_path, image_name)
