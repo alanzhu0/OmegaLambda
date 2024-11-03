@@ -1,4 +1,4 @@
-# CRED2 Camera Image Capture
+# CRED2 Camera Image Capture - Alan Zhu, 2024-06-21
 
 from astropy.io import fits
 import ctypes
@@ -10,11 +10,11 @@ import psutil
 import queue
 import signal
 import subprocess
-import sys
 import threading
 from tqdm import tqdm
 from time import sleep
 from datetime import datetime, timezone
+
 # from PIL import Image
 
 import FliSdk_V2 as FliSdk
@@ -31,48 +31,47 @@ USERNAME: ctypes.c_char_p = ctypes.c_char_p(b"admin")
 PASSWORD: ctypes.c_char_p = ctypes.c_char_p(b"flicred1")
 CONTEXT: ctypes.c_void_p = None
 TEMPERATURE: float = -40.0  # Celsius
-TEMP_THRESHOLD: float = 0.5  # Celsius. Temperature threshold for setting temperature setpoint.
+TEMP_THRESHOLD: float = 0.5  # Celsius. Temperature threshold for cooler to reach setpoint.
+FRAME_TIME: float = 0.04  # Seconds. Optimal individual frame exposure time for CRED2 camera.
+TIME_SCALE_FACTOR: float = 36.0  # Because we don't get accurate frame rates (much higher than expected), compensate for it by increasing the stack time (empirically determined).
 
 CONFIG_FILE: str = "cred2_capture_config.json"
 """Example config file:
 {
-    "total_run_time_seconds": -1.0,
-    "frame_time_seconds": 0.1,
+    "total_run_time_seconds": 0.0,
     "image_stack_time_seconds": 1.0,
     "take_calibration_images": false,
     "data_directory": "data",
     "filename_prefix": "image-",
-    "enable_compression": false,
+    "enable_compression": true,
     "wait_for_cooler_settle": true
 }
 """
-TOTAL_RUN_TIME: float = -1.0  # Seconds. Total time to capture images for. -1 for continuous capture.
-FRAME_TIME: float = 0.1  # Seconds. Optimal individual frame exposure time for CRED2 camera.
-IMAGE_STACK_TIME: float = 1.0  # Seconds. Stacked exposure time for the stacked images.
+TOTAL_RUN_TIME: float = 0.0 * TIME_SCALE_FACTOR  # Seconds. Total time to capture images for. 0 for continuous capture.
+IMAGE_STACK_TIME: float = 1.0 * TIME_SCALE_FACTOR  # Seconds. Stacked exposure time for the stacked images.
 TAKE_CALIBRATION_IMAGES: bool = False  # Take biases, darks, flats
 DATA_DIRECTORY: str = "data"
-FILENAME_PREFIX: str = "image_"
-ENABLE_COMPRESSION: bool = False  # Compress images after saving using fpack
+FILENAME_PREFIX: str = "image-"
+ENABLE_COMPRESSION: bool = True  # Compress images after saving using fpack
 WAIT_FOR_COOLER_SETTLE: bool = True  # Wait for cooler to reach setpoint before capturing images
 
 # Load config
 if os.path.exists(CONFIG_FILE):
     with open(CONFIG_FILE, "r") as f:
         config = json.load(f)
-        TOTAL_RUN_TIME = float(config.get("total_run_time_seconds", TOTAL_RUN_TIME))
-        FRAME_TIME = float(config.get("frame_time_seconds", FRAME_TIME))
-        IMAGE_STACK_TIME = float(config.get("image_stack_time_seconds", IMAGE_STACK_TIME))
-        TAKE_CALIBRATION_IMAGES = bool(config.get("take_calibration_images", TAKE_CALIBRATION_IMAGES))
-        DATA_DIRECTORY = str(config.get("data_directory", DATA_DIRECTORY))
-        FILENAME_PREFIX = str(config.get("filename_prefix", FILENAME_PREFIX))
-        ENABLE_COMPRESSION = bool(config.get("enable_compression", ENABLE_COMPRESSION))
-        WAIT_FOR_COOLER_SETTLE = bool(config.get("wait_for_cooler_settle", WAIT_FOR_COOLER_SETTLE))
+        TOTAL_RUN_TIME = config.get("total_run_time_seconds", TOTAL_RUN_TIME) * TIME_SCALE_FACTOR
+        IMAGE_STACK_TIME = config.get("image_stack_time_seconds", IMAGE_STACK_TIME) * TIME_SCALE_FACTOR
+        TAKE_CALIBRATION_IMAGES = config.get("take_calibration_images", TAKE_CALIBRATION_IMAGES)
+        DATA_DIRECTORY = config.get("data_directory", DATA_DIRECTORY)
+        FILENAME_PREFIX = config.get("filename_prefix", FILENAME_PREFIX)
+        ENABLE_COMPRESSION = config.get("enable_compression", ENABLE_COMPRESSION)
+        WAIT_FOR_COOLER_SETTLE = config.get("wait_for_cooler_settle", WAIT_FOR_COOLER_SETTLE)
 
 
 ########## Calculated parameters ##########
 IMAGE_STACK_SIZE: int = int(IMAGE_STACK_TIME / FRAME_TIME)  # Number of images to stack for each stacked image. 1 for no stacking.
-NUM_IMAGES = int(TOTAL_RUN_TIME / IMAGE_STACK_TIME)   # Number of images to capture.
-CONTINUOUS_CAPTURE: bool = TOTAL_RUN_TIME < 0  # If True, will capture images continuously until stopped
+NUM_IMAGES = int(TOTAL_RUN_TIME / IMAGE_STACK_TIME)  # Number of images to capture.
+CONTINUOUS_CAPTURE: bool = TOTAL_RUN_TIME == 0  # If True, will capture images continuously until stopped
 FPS: float = 1 / FRAME_TIME
 FITS_HEADER: dict[str, str | float] = {  # For FITS headers
     "ORIGIN": "George Mason University Observatory",
