@@ -47,6 +47,7 @@ CONFIG_FILE: str = os.path.join(os.path.dirname(__file__), "cred2_capture_config
     "filename_prefix": "image-",
     "enable_compression": true,
     "wait_for_cooler_settle": true
+    "startup_only": false
 }
 """
 TOTAL_RUN_TIME: float = 0.0 * TIME_SCALE_FACTOR  # Seconds. Total time to capture images for. 0 for continuous capture.
@@ -56,6 +57,7 @@ DATA_DIRECTORY: str = "data"
 FILENAME_PREFIX: str = "image-"
 ENABLE_COMPRESSION: bool = True  # Compress images after saving using fpack
 WAIT_FOR_COOLER_SETTLE: bool = True  # Wait for cooler to reach setpoint before capturing images
+STARTUP_ONLY: bool = False  # If True, will just startup the control code but not start capturing images
 
 # Load config
 if os.path.exists(CONFIG_FILE):
@@ -68,7 +70,10 @@ if os.path.exists(CONFIG_FILE):
         FILENAME_PREFIX = config.get("filename_prefix", FILENAME_PREFIX)
         ENABLE_COMPRESSION = config.get("enable_compression", ENABLE_COMPRESSION)
         WAIT_FOR_COOLER_SETTLE = config.get("wait_for_cooler_settle", WAIT_FOR_COOLER_SETTLE)
+        STARTUP_ONLY = config.get("startup_only", STARTUP_ONLY)
 
+if not os.path.isabs(DATA_DIRECTORY):
+    DATA_DIRECTORY = os.path.join(os.path.dirname(__file__), DATA_DIRECTORY)
 
 ########## Calculated parameters ##########
 IMAGE_STACK_SIZE: int = int(IMAGE_STACK_TIME / FRAME_TIME)  # Number of images to stack for each stacked image. 1 for no stacking.
@@ -127,7 +132,7 @@ def setup() -> None:
         while abs(temp - TEMPERATURE) > TEMP_THRESHOLD:
             sleep(2)
             temp = get_temp()
-            print(temp, end=" ")
+            print(temp, end=" ", flush=True)
         print("\nCooler has reached setpoint.")
 
     if TAKE_CALIBRATION_IMAGES:
@@ -242,7 +247,7 @@ def stack_images(images: list[np.ndarray[np.uint16]]) -> np.ndarray[np.uint32]:
 
 def median_images(images: list[np.ndarray[np.uint16]]) -> np.ndarray[np.uint16]:
     """Return an image with the median of the pixel values of the images."""
-    return np.median(images, axis=0, dtype=np.uint16)
+    return np.median(images, axis=0)
 
 
 def write_to_fits(image: np.ndarray[np.uint16 | np.uint32], annotation: str = "") -> str:
@@ -252,7 +257,7 @@ def write_to_fits(image: np.ndarray[np.uint16 | np.uint32], annotation: str = ""
     header: fits.Header = fits.Header(FITS_HEADER)
     hdu: fits.PrimaryHDU = fits.PrimaryHDU(image, header=header)
     filename: str = f"{DATA_DIRECTORY}/{FILENAME_PREFIX}{str(FILENAME_NUM).zfill(FILENAME_NUM_LENGTH)}{'_' + annotation if annotation else ''}.fits"
-    hdu.writeto(filename)
+    hdu.writeto(filename, overwrite=True)
     return filename
     # image_8bit = np.array(Image.fromarray(image, mode="RGBA").convert("L"))
     # hdu_8bit: fits.PrimaryHDU = fits.PrimaryHDU(image_8bit)
@@ -286,22 +291,37 @@ write_th: threading.Thread = None
 compress_th: threading.Thread = None
 
 stop_event = threading.Event()
+stop_read_event = threading.Event()
 continue_taking_images = threading.Event()  # If False, will pause taking images
 continue_taking_images.set()
 
-maxim = Dispatch("MaxIm.Application")
-
+MAXIM = Dispatch("MaxIm.Application")
+MAXIM.LockApp = True
+MAXIM_DOCUMENT = Dispatch("MaxIm.Document")
 
 def stop_threads(*args, script_done=False) -> None:
     print("Stopping threads...")
     stop_event.set()
-    if read_th and not script_done:
-        read_th.join()
-    if write_th:
-        write_th.join()
+
     if ENABLE_COMPRESSION and compress_th:
-        compress_th.join()
+        print("Stopping compress thread...")
+        compress_th.join(timeout=5)
+        if compress_th.is_alive():
+            print("Compress thread failed to stop.")
+    if write_th:
+        print("Stopping write thread...")
+        write_th.join(timeout=5)
+        if write_th.is_alive():
+            print("Write thread failed to stop.")
+
+    stop_read_event.set()
+    if read_th and not script_done:
+        print("Stopping read thread...")
+        read_th.join(timeout=5)
+        if read_th.is_alive():
+            print("Read thread failed to stop.")
     if CONTEXT:
+        print("Disconnecting from camera...")
         disconnect()
     exit()
 
@@ -316,13 +336,23 @@ def resume_captures() -> None:
     continue_taking_images.set()
 
 
+def take_one_capture() -> None:
+    if continue_taking_images.is_set():
+        pause_captures()
+    print("Taking one exposure.")
+
+    images = [get_image() for _ in range(IMAGE_STACK_SIZE)]
+    image = stack_images(images)
+    write_queue.put(image)
+
+
 def read_thread() -> None:
     read_images = 0
 
     if IMAGE_STACK_SIZE > 1:
         if CONTINUOUS_CAPTURE:
             images: list[np.ndarray[np.uint16]] = []
-            while not stop_event.is_set():
+            while not stop_read_event.is_set():
                 continue_taking_images.wait()
                 images.append(get_image())
                 if len(images) >= IMAGE_STACK_SIZE:
@@ -341,7 +371,7 @@ def read_thread() -> None:
                     break
     else:
         if CONTINUOUS_CAPTURE:
-            while not stop_event.is_set():
+            while not stop_read_event.is_set():
                 continue_taking_images.wait()
                 image = get_image()
                 write_queue.put(image)
@@ -395,13 +425,8 @@ def display_thread() -> None:
     while not stop_event.is_set():
         # image = display_queue.get()
         # show_image(image)
-        # with display_queue.mutex:
-        #     display_queue.queue.clear()  # Always show the latest image
-        # display_queue.task_done()
         path = display_queue.get()
-        document = Dispatch("MaxIm.Document")
-        document.OpenFits(path)
-        # maxim.OpenFits(path)
+        MAXIM_DOCUMENT.OpenFile(path)
         with display_queue.mutex:
             display_queue.queue.clear()  # Always show the latest image
         display_queue.task_done()
@@ -413,6 +438,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, stop_threads)
     signal.signal(signal.SIGABRT, pause_captures)  # Send SIGABRT to pause captures 
     signal.signal(signal.SIGILL, resume_captures)  # Send SIGILL to resume captures
+    signal.signal(signal.SIGFPE, take_one_capture)  # Send SIGFPE to take one exposure
 
     connect()
     setup()
@@ -427,6 +453,9 @@ def main() -> None:
     if NUM_IMAGES <= 0:
         print("No images to capture.")
         stop_threads(script_done=True)
+
+    if STARTUP_ONLY:
+        pause_captures()
     
     print("Starting threads...")
     global read_th, write_th
@@ -438,8 +467,10 @@ def main() -> None:
     if ENABLE_COMPRESSION:
         compress_th = threading.Thread(target=compress_thread)
         compress_th.start()
-        
-    if CONTINUOUS_CAPTURE:
+    
+    if STARTUP_ONLY:
+        print("Control code started. Not capturing images yet.")
+    elif CONTINUOUS_CAPTURE:
         print("Press CTRL+C to stop capturing images.")
     else:
         print('-' * 40)
