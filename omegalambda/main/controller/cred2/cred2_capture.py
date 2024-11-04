@@ -15,6 +15,7 @@ import threading
 from tqdm import tqdm
 from time import sleep
 from datetime import datetime, timezone
+from win32com.client import Dispatch
 
 # from PIL import Image
 
@@ -288,6 +289,8 @@ stop_event = threading.Event()
 continue_taking_images = threading.Event()  # If False, will pause taking images
 continue_taking_images.set()
 
+maxim = Dispatch("MaxIm.Application")
+
 
 def stop_threads(*args, script_done=False) -> None:
     print("Stopping threads...")
@@ -326,8 +329,7 @@ def read_thread() -> None:
                     image = stack_images(images)
                     images.clear()
                     write_queue.put(image)
-                    display_queue.put(image)
-                    read_images += 1
+                    # display_queue.put(image)
         else:
             for _ in tqdm(range(NUM_IMAGES), unit="images"):
                 continue_taking_images.wait()
@@ -343,8 +345,7 @@ def read_thread() -> None:
                 continue_taking_images.wait()
                 image = get_image()
                 write_queue.put(image)
-                display_queue.put(image)
-                read_images += 1
+                # display_queue.put(image)
         else:
             for _ in tqdm(range(NUM_IMAGES), unit="images"):
                 continue_taking_images.wait()
@@ -370,6 +371,7 @@ def write_thread() -> None:
         image = write_queue.get()
         path = write_to_fits(image)
         write_queue.task_done()
+        display_queue.put(path)
         if ENABLE_COMPRESSION:
             compress_queue.put(path)
 
@@ -391,8 +393,15 @@ def compress_thread() -> None:
 
 def display_thread() -> None:
     while not stop_event.is_set():
-        image = display_queue.get()
-        show_image(image)
+        # image = display_queue.get()
+        # show_image(image)
+        # with display_queue.mutex:
+        #     display_queue.queue.clear()  # Always show the latest image
+        # display_queue.task_done()
+        path = display_queue.get()
+        document = Dispatch("MaxIm.Document")
+        document.OpenFits(path)
+        # maxim.OpenFits(path)
         with display_queue.mutex:
             display_queue.queue.clear()  # Always show the latest image
         display_queue.task_done()
@@ -432,7 +441,6 @@ def main() -> None:
         
     if CONTINUOUS_CAPTURE:
         print("Press CTRL+C to stop capturing images.")
-        display_thread()
     else:
         print('-' * 40)
         print("Capturing images.")
@@ -442,6 +450,8 @@ def main() -> None:
         print(f"Individual frame exposure time: {FRAME_TIME} seconds ({FPS} FPS).")
         print("Press CTRL+C to stop capturing images prematurely.")
         print()
+
+    display_thread()
 
 
 if __name__ == "__main__":
