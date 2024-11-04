@@ -350,17 +350,24 @@ class NIRCamera(Camera):
         """
         self.exp_done.clear()
 
+        if num_exposures == 1 and self.proc is not None:
+            self.proc.send_signal(signal.SIGFPE)  # take one exposure
+            time.sleep(1 + exposure_time)
+            self.exp_done.set()
+            return
+
         config = {
             "total_run_time_seconds": 0.0,  # Continuous
             "image_stack_time_seconds": float(exposure_time),
             "take_calibration_images": False,
             "data_directory": save_dir,
             "filename_prefix": name + "-",
-            "enable_compression": None,
+            "enable_compression": True,
             "wait_for_cooler_settle": wait_for_cooler,
+            "startup_only": num_exposures == 1
         }
 
-        if num_exposures:
+        if num_exposures and num_exposures > 1:
             config["total_run_time_seconds"] = float(num_exposures) * float(exposure_time)
 
         self._write_capture_code_config(config)
@@ -374,6 +381,11 @@ class NIRCamera(Camera):
 
         if num_exposures:
             time.sleep(5 + config["total_run_time_seconds"])
+            if num_exposures > 1:
+                self.proc.send_signal(signal.SIGFPE)  # take one exposure
+                time.sleep(1 + exposure_time)
+                self.exp_done.set()
+                return
             self.disconnect(timeout=60, terminate=False)
             self.exp_done.set()
 
@@ -383,7 +395,7 @@ class NIRCamera(Camera):
             logging.info("NIR camera captures paused.")
         else:
             logging.warning("NIR camera is not connected. Cannot pause.")
-    
+
     def resume_exposing(self):
         if self.proc is not None:
             self.proc.send_signal(signal.SIGILL)
