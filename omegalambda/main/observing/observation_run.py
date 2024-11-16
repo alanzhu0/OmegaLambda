@@ -83,7 +83,7 @@ class ObservationRun:
 
         # Initializes higher level structures - focuser, guider, and calibration
         self.focus_procedures = FocusProcedures(self.focuser, self.camera, self.conditions, self.shutdown_event, plot_lock=self.plot_lock)
-        self.calibration = Calibration(self.camera, self.flatlamp, self.image_directories)
+        self.calibration = Calibration(self.camera, self.flatlamp, self.tertiary_mirror, self.image_directories)
         self.guider = Guider(self.camera, self.telescope)
         self.gui = Gui(self.focuser, self.focus_procedures, focus_toggle)
 

@@ -11,7 +11,7 @@ from ..controller.hardware import Hardware
 
 class Calibration(Hardware):
 
-    def __init__(self, camera_obj, flatlamp_obj, image_directories):
+    def __init__(self, camera_obj, flatlamp_obj, tertiary_mirror_obj, image_directories):
         """
         Initializes the calibration module as a subclass of hardware.
 
@@ -21,6 +21,8 @@ class Calibration(Hardware):
             Initialized camera.
         flatlamp_obj : FlatLamp Object
             Initialized flat lamp.
+        tertiary_mirror_obj : TertiaryMirror Object
+            Initialized tertiary mirror.
         image_directories : LIST
             Paths to where image files are saved for each ticket.
 
@@ -31,6 +33,7 @@ class Calibration(Hardware):
         """
         self.camera = camera_obj
         self.flatlamp = flatlamp_obj
+        self.tertiary_mirror = tertiary_mirror_obj
         self.image_directories = image_directories
         self.filterwheel_dict = filter_wheel.get_filter().filter_position_dict()
         self.filter_exp_times = {'clr': 3.0, 'uv': 120.0, 'b': 120.0, 'v': 16.0, 'r': 8.0, 'ir': 10.0, 'Ha': 120.0}
@@ -179,13 +182,15 @@ class Calibration(Hardware):
             self.darks_done.set()
             return True
 
-        if self.camera.cam_type == "NIR":
+        if ticket.camera and ticket.camera == "NIR":
+            self.tertiary_mirror.select_camera("CCD")  # move the tertiary mirror away to take darks
             self.camera.start_exposing(
                 float(ticket.exp_time if type(ticket.exp_time) in (float, int) else ticket.exp_time[0]),
                 darks_path,
                 ticket.name,
                 calibration="darks"
             )
+            self.tertiary_mirror.select_camera(ticket.camera)  # move the tertiary mirror back to the NIR camera
         else:
             for f in filters:
                 for j in range(self.config_dict.calibration_num):
