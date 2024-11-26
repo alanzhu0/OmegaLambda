@@ -186,21 +186,24 @@ def set_temp(temp: float) -> float:
 
 
 ########## Calibration images ##########
-NUM_DARK_FRAMES: int = max(int(get_fps() * 60), 20)
-NUM_FLAT_FRAMES: int = NUM_DARK_FRAMES
-FLAT_FPS: float = 10.0
-
+NUM_DARK_IMAGES: int = max(5 * 60 / (IMAGE_STACK_TIME / TIME_SCALE_FACTOR), 25)  # 5 min of images or 25 frames, whichever is greater
+NUM_FLAT_IMAGES: int = NUM_DARK_IMAGES
+FLAT_STACK_TIME: float = 10.0 * TIME_SCALE_FACTOR  # Seconds. Stacked exposure time for the flat images.
 
 def take_darks() -> None:
     set_fps(FPS)
-    print(f"Taking {NUM_DARK_FRAMES} dark frames at {FPS} FPS.")
-    take_calibration_image("dark", NUM_DARK_FRAMES)
+    print(f"Taking {NUM_DARK_IMAGES} dark frames at {FPS} FPS stacked to {IMAGE_STACK_TIME / TIME_SCALE_FACTOR}s (science exposure time).")
+    take_calibration_image("dark", NUM_DARK_IMAGES, IMAGE_STACK_TIME)
+    if IMAGE_STACK_TIME != FLAT_STACK_TIME:
+        print(f"Taking {NUM_FLAT_IMAGES} dark frames at {FPS} FPS stacked to {FLAT_STACK_TIME / TIME_SCALE_FACTOR}s (flat exposure time).")
+        set_fps(FPS)
+        take_calibration_image("dark", NUM_FLAT_IMAGES, FLAT_STACK_TIME)
 
 
 def take_flats() -> None:
-    set_fps(FLAT_FPS)
-    print(f"Taking {NUM_FLAT_FRAMES} flat frames at {FPS} FPS.")
-    take_calibration_image("flat", NUM_FLAT_FRAMES)
+    set_fps(FPS)
+    print(f"Taking {NUM_FLAT_IMAGES} flat frames at {FPS} FPS stacked to {FLAT_STACK_TIME / TIME_SCALE_FACTOR}s (flat exposure time).")
+    take_calibration_image("flat", NUM_FLAT_IMAGES, FLAT_STACK_TIME)
 
 
 def take_calibration_images() -> None:
@@ -225,13 +228,18 @@ def take_calibration_images() -> None:
     print("-" * 40)
 
 
-def take_calibration_image(calibration_type, num_frames) -> None:
-    images: list[np.ndarray[np.uint16]] = [get_image() for _ in range(num_frames)]
-    image = median_images(images)
-    annotation = f"{calibration_type}_{FPS / 60:.2f}s"
-    path = write_to_fits(image, annotation=annotation)
-    print(f"Calibration image saved to {path}.")
-    compress(path)
+def take_calibration_image(calibration_type, num_images, stack_time) -> None:
+    stack_size = int(stack_time / FRAME_TIME)
+    annotation = f"{calibration_type}_{stack_time / TIME_SCALE_FACTOR:.2f}s"
+    for _ in tqdm(range(num_images), unit="images"):
+        continue_taking_images.wait()
+        images = [get_image() for _ in range(stack_size)]
+        image = stack_images(images)
+        path = write_to_fits(image, annotation=annotation)
+        if ENABLE_COMPRESSION:
+            compress(path)
+        if stop_event.is_set():
+            break
 
 
 ########## Image processing ##########
