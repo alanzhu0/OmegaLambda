@@ -186,7 +186,7 @@ def set_temp(temp: float) -> float:
 
 
 ########## Calibration images ##########
-NUM_DARK_IMAGES: int = max(5 * 60 / (IMAGE_STACK_TIME / TIME_SCALE_FACTOR), 25)  # 5 min of images or 25 frames, whichever is greater
+NUM_DARK_IMAGES: int = max(int(5 * 60 / (IMAGE_STACK_TIME / TIME_SCALE_FACTOR)), 25)  # 5 min of images or 25 frames, whichever is greater
 NUM_FLAT_IMAGES: int = NUM_DARK_IMAGES
 FLAT_STACK_TIME: float = 10.0 * TIME_SCALE_FACTOR  # Seconds. Stacked exposure time for the flat images.
 
@@ -231,15 +231,18 @@ def take_calibration_images() -> None:
 def take_calibration_image(calibration_type, num_images, stack_time) -> None:
     stack_size = int(stack_time / FRAME_TIME)
     annotation = f"{calibration_type}_{stack_time / TIME_SCALE_FACTOR:.2f}s"
+    paths = []
     for _ in tqdm(range(num_images), unit="images"):
         continue_taking_images.wait()
         images = [get_image() for _ in range(stack_size)]
         image = stack_images(images)
         path = write_to_fits(image, annotation=annotation)
-        if ENABLE_COMPRESSION:
-            compress(path)
+        paths.append(path)
         if stop_event.is_set():
             break
+    if ENABLE_COMPRESSION:
+        print("Compressing calibration images...")
+        compress_group(paths)
 
 
 ########## Image processing ##########
