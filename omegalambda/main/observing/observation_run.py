@@ -426,6 +426,10 @@ class ObservationRun:
             self.take_calibration_images(beginning=True)
         else:
             cooler = True
+        self.shutdown_toggle = True
+        self.shutdown()
+        return
+
         self.check_start_time(self.observation_request_list[0])
         initial_shutter = self._startup_procedure(cooler=cooler)
 

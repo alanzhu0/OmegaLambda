@@ -34,8 +34,8 @@
 	"guider_angle": 180.0,
 	"guider_flip_y": false,
 	"data_directory": "H:/Observatory Files/Observing Sessions/",
-	"calibration_time": "end",
-	"calibration_num": 10,
+	"calibration_time": "start",
+	"calibration_num": 350,
 	"default_camera": "CCD",
 	"slew_offset_ra": 0.0,
 	"slew_offset_dec": 0.0
