@@ -691,12 +691,13 @@ class ObservationRun:
                     break
                 if not self.everything_ok():
                     break
-
-                if satellite_tracking:
-                    self.satellite_tracking_check()
-
+                
                 current_filter = _filter[i % num_filters]
                 current_exp = exp_time[i % num_exptimes]
+
+                if satellite_tracking:
+                    self.satellite_tracking_check(satellite_check_time, satellite_tracking_mode, current_exp)
+
                 image_name = "{0:s}_{1:.3f}s_{2:s}-{3:04d}.fits".format(name, current_exp, str(current_filter).upper(), image_num)
 
                 if i == 0 and os.path.exists(os.path.join(path, image_name)):
@@ -711,7 +712,7 @@ class ObservationRun:
 
                 # Satellite tracking
                 if satellite_tracking:
-                    self.satellite_tracking_check()
+                    self.satellite_tracking_check(satellite_check_time, satellite_tracking_mode, current_exp)
 
                 header_info_i = self.add_timed_header_info(header_info, name, current_exp, satellite_tracking)
                 self.camera.onThread(
@@ -735,7 +736,7 @@ class ObservationRun:
                 self.camera.image_done.wait(timeout=int(current_exp) * 2 + 10)
 
                 if satellite_tracking:
-                    self.satellite_tracking_check()
+                    self.satellite_tracking_check(satellite_check_time, satellite_tracking_mode, current_exp)
 
                 if cycle_filter:
                     if names_list:
