@@ -52,6 +52,7 @@ CONFIG_FILE: str = os.path.join(os.path.dirname(__file__), "cred2_capture_config
 """
 TOTAL_RUN_TIME: float = 0.0 * TIME_SCALE_FACTOR  # Seconds. Total time to capture images for. 0 for continuous capture.
 IMAGE_STACK_TIME: float = 1.0 * TIME_SCALE_FACTOR  # Seconds. Stacked exposure time for the stacked images.
+IMAGE_CHUNK_TIME: float = 5.0  # Seconds. To conserve memory, continuously stack images in chunks of this size while capturing images until it reaches the final exposure time.
 TAKE_CALIBRATION_IMAGES: bool = False  # Take biases, darks, flats
 DATA_DIRECTORY: str = "data"
 FILENAME_PREFIX: str = "image-"
@@ -77,6 +78,7 @@ if not os.path.isabs(DATA_DIRECTORY):
 
 ########## Calculated parameters ##########
 IMAGE_STACK_SIZE: int = int(IMAGE_STACK_TIME / FRAME_TIME)  # Number of images to stack for each stacked image. 1 for no stacking.
+IMAGE_CHUNK_SIZE: int = int(IMAGE_CHUNK_TIME / FRAME_TIME)  # Number of images to stack for each chunk. 
 NUM_IMAGES = max(int(TOTAL_RUN_TIME / IMAGE_STACK_TIME), 1)  # Number of images to capture.
 CONTINUOUS_CAPTURE: bool = TOTAL_RUN_TIME == 0.0  # If True, will capture images continuously until stopped
 FPS: float = 1 / FRAME_TIME
@@ -366,6 +368,10 @@ def read_thread() -> None:
             while not stop_read_event.is_set():
                 continue_taking_images.wait()
                 images.append(get_image())
+                if len(images) >= IMAGE_CHUNK_SIZE:
+                    image = stack_images(images)
+                    images.clear()
+                    images.append(image)
                 if len(images) >= IMAGE_STACK_SIZE:
                     image = stack_images(images)
                     images.clear()
@@ -374,8 +380,18 @@ def read_thread() -> None:
         else:
             for _ in tqdm(range(NUM_IMAGES), unit="images"):
                 continue_taking_images.wait()
-                images = [get_image() for _ in range(IMAGE_STACK_SIZE)]
-                image = stack_images(images)
+                if IMAGE_STACK_SIZE > IMAGE_CHUNK_SIZE:
+                    image = None
+                    for _ in range(IMAGE_STACK_SIZE // IMAGE_CHUNK_SIZE):
+                        images = [get_image() for _ in range(IMAGE_CHUNK_SIZE)] + [image] if image else []
+                        image = stack_images(images)
+                    remaining_images = IMAGE_STACK_SIZE % IMAGE_CHUNK_SIZE
+                    if remaining_images:
+                        images = [get_image() for _ in range(remaining_images)] + [image] if image else []
+                        image = stack_images(images)
+                else: 
+                    images = [get_image() for _ in range(IMAGE_STACK_SIZE)]
+                    image = stack_images(images)
                 write_queue.put(image)
                 read_images += 1
                 if stop_event.is_set():
