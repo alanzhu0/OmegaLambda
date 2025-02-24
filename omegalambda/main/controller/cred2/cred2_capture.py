@@ -26,7 +26,6 @@ import FliSdk_V2 as FliSdk
 FILENAME_NUM_LENGTH: int = 8
 FILENAME_NUM: int = 0
 COMPRESS_CMD: list[str] = ["C:\\Program Files (x86)\\CFITSIO\\bin\\fpack.exe", "-h", "-F", "-Y"]
-COMPRESS_GROUP_SIZE: int = 100
 MAX_COMPRESS_PROCESSES: int = 10
 IP_ADDRESS: ctypes.c_char_p = ctypes.c_char_p(b"169.254.123.123")
 USERNAME: ctypes.c_char_p = ctypes.c_char_p(b"admin")
@@ -52,7 +51,7 @@ CONFIG_FILE: str = os.path.join(os.path.dirname(__file__), "cred2_capture_config
 """
 TOTAL_RUN_TIME: float = 0.0 * TIME_SCALE_FACTOR  # Seconds. Total time to capture images for. 0 for continuous capture.
 IMAGE_STACK_TIME: float = 1.0 * TIME_SCALE_FACTOR  # Seconds. Stacked exposure time for the stacked images.
-IMAGE_CHUNK_TIME: float = 5.0  # Seconds. To conserve memory, continuously stack images in chunks of this size while capturing images until it reaches the final exposure time.
+IMAGE_CHUNK_TIME: float = 5.0 * TIME_SCALE_FACTOR  # Seconds. To conserve memory, continuously stack images in chunks of this size while capturing images until it reaches the final exposure time.
 TAKE_CALIBRATION_IMAGES: bool = False  # Take biases, darks, flats
 DATA_DIRECTORY: str = "data"
 FILENAME_PREFIX: str = "image-"
@@ -77,6 +76,7 @@ if not os.path.isabs(DATA_DIRECTORY):
     DATA_DIRECTORY = os.path.join(os.path.dirname(__file__), DATA_DIRECTORY)
 
 ########## Calculated parameters ##########
+COMPRESS_GROUP_SIZE: int = max(1, 60 // (IMAGE_STACK_TIME / TIME_SCALE_FACTOR))  # Number of images to compress at once
 IMAGE_STACK_SIZE: int = int(IMAGE_STACK_TIME / FRAME_TIME)  # Number of images to stack for each stacked image. 1 for no stacking.
 IMAGE_CHUNK_SIZE: int = int(IMAGE_CHUNK_TIME / FRAME_TIME)  # Number of images to stack for each chunk. 
 NUM_IMAGES = max(int(TOTAL_RUN_TIME / IMAGE_STACK_TIME), 1)  # Number of images to capture.
@@ -86,7 +86,7 @@ FITS_HEADER: dict[str, str | float] = {  # For FITS headers
     "ORIGIN": "George Mason University Observatory",
     "INSTRUME": "CRED2 Near-Infrared Camera",
     "OBSERVER": "GMU CRED2 automation code",
-    "EXPTIME": IMAGE_STACK_TIME,
+    "EXPTIME": IMAGE_STACK_TIME / TIME_SCALE_FACTOR,
     "FRAMTIME": FRAME_TIME,
     "SET-TEMP": TEMPERATURE,
     "DATE": None,
@@ -198,33 +198,40 @@ def take_darks() -> None:
     take_calibration_image("dark", NUM_DARK_IMAGES, IMAGE_STACK_TIME)
     if IMAGE_STACK_TIME != FLAT_STACK_TIME:
         print(f"Taking {NUM_FLAT_IMAGES} dark frames at {FPS} FPS stacked to {FLAT_STACK_TIME / TIME_SCALE_FACTOR}s (flat exposure time).")
-        set_fps(FPS)
         take_calibration_image("dark", NUM_FLAT_IMAGES, FLAT_STACK_TIME)
 
 
 def take_flats() -> None:
     set_fps(FPS)
-    print(f"Taking {NUM_FLAT_IMAGES} flat frames at {FPS} FPS stacked to {FLAT_STACK_TIME / TIME_SCALE_FACTOR}s (flat exposure time).")
-    take_calibration_image("flat", NUM_FLAT_IMAGES, FLAT_STACK_TIME)
+    print(f"Taking {NUM_FLAT_IMAGES} flat frames at {FPS} FPS stacked to {IMAGE_STACK_TIME / TIME_SCALE_FACTOR}s (science exposure time).")
+    take_calibration_image("flat", NUM_FLAT_IMAGES, IMAGE_STACK_TIME)
+    if IMAGE_STACK_TIME != FLAT_STACK_TIME:
+        print(f"Taking {NUM_FLAT_IMAGES} flat frames at {FPS} FPS stacked to {FLAT_STACK_TIME / TIME_SCALE_FACTOR}s (flat exposure time).")
+        take_calibration_image("flat", NUM_FLAT_IMAGES, FLAT_STACK_TIME)
 
 
 def take_calibration_images() -> None:
     print("-" * 40)
     print("Beginning calibration images procedure.")
-    print("Preparing to take dark frames. Place the lens cap on the camera to ensure no light enters the sensor.")
-    input("Press Enter to continue... ")
-
-    take_darks()
-    print()
+    print("Preparing to take dark frames. Ensure the dome is darkened, and turn away the tertiary mirror to ensure no light enters the sensor.")
+    response = input("Press any key to continue, or type SKIP to skip taking darks... ")
+    if response.lower() == "skip":
+        print("Skipping taking dark frames.")
+    else:
+        take_darks()
+        print()
 
     # print(f"Taking {NUM_BIAS_FRAMES} bias frames at {BIAS_FPS} FPS.")
     # set_fps(BIAS_FPS)
     # take_calibration_image("bias", NUM_BIAS_FRAMES)
     # print()
 
-    print("Preparing to take flat frames. Remove the lens cap from the camera and evenly illuminate the sensor.")
-    input("Press Enter to continue... ")
-    take_flats()
+    print("Preparing to take flat frames. Turn the tertiary mirror to the CRED2 camera and turn on the flat lamp.")
+    response = input("Press any key to continue, or type SKIP to skip taking flats... ")
+    if response.lower() == "skip":
+        print("Skipping taking flat frames.")
+    else:
+        take_flats()
 
     print("Done taking calibration images.")
     print("-" * 40)
@@ -236,12 +243,26 @@ def take_calibration_image(calibration_type, num_images, stack_time) -> None:
     paths = []
     for _ in tqdm(range(num_images), unit="images"):
         continue_taking_images.wait()
-        images = [get_image() for _ in range(stack_size)]
-        image = stack_images(images)
+        if stack_size > IMAGE_CHUNK_SIZE:
+            images = []
+            for _ in range(stack_size // IMAGE_CHUNK_SIZE):
+                images.extend(get_image() for _ in range(IMAGE_CHUNK_SIZE))
+                image = stack_images(images)
+                images.clear()
+                images.append(image)
+            remaining_images = IMAGE_STACK_SIZE % IMAGE_CHUNK_SIZE
+            if remaining_images:
+                images.extend(get_image() for _ in range(remaining_images))
+                image = stack_images(images)
+        else: 
+            images = [get_image() for _ in range(stack_size)]
+            image = stack_images(images)
         path = write_to_fits(image, annotation=annotation)
+        MAXIM_DOCUMENT.OpenFile(path)
         paths.append(path)
         if stop_event.is_set():
             break
+
     if ENABLE_COMPRESSION:
         print("Compressing calibration images...")
         compress_group(paths)
@@ -308,12 +329,16 @@ stop_read_event = threading.Event()
 continue_taking_images = threading.Event()  # If False, will pause taking images
 continue_taking_images.set()
 
+STOP = "STOP"
+
 MAXIM = Dispatch("MaxIm.Application")
 MAXIM.LockApp = True
 MAXIM_DOCUMENT = Dispatch("MaxIm.Document")
 
 def stop_threads(*args, script_done=False) -> None:
     print("Stopping threads...")
+    compress_th.put(STOP)
+    write_th.put(STOP)
     stop_event.set()
 
     if ENABLE_COMPRESSION and compress_th:
@@ -336,6 +361,9 @@ def stop_threads(*args, script_done=False) -> None:
     if CONTEXT:
         print("Disconnecting from camera...")
         disconnect()
+
+    display_queue.put(STOP)
+
     exit()
 
 
@@ -381,13 +409,15 @@ def read_thread() -> None:
             for _ in tqdm(range(NUM_IMAGES), unit="images"):
                 continue_taking_images.wait()
                 if IMAGE_STACK_SIZE > IMAGE_CHUNK_SIZE:
-                    image = None
+                    images = []
                     for _ in range(IMAGE_STACK_SIZE // IMAGE_CHUNK_SIZE):
-                        images = [get_image() for _ in range(IMAGE_CHUNK_SIZE)] + [image] if image else []
+                        images.extend(get_image() for _ in range(IMAGE_CHUNK_SIZE))
                         image = stack_images(images)
+                        images.clear()
+                        images.append(image)
                     remaining_images = IMAGE_STACK_SIZE % IMAGE_CHUNK_SIZE
                     if remaining_images:
-                        images = [get_image() for _ in range(remaining_images)] + [image] if image else []
+                        images.extend(get_image() for _ in range(remaining_images))
                         image = stack_images(images)
                 else: 
                     images = [get_image() for _ in range(IMAGE_STACK_SIZE)]
@@ -426,6 +456,8 @@ def read_thread() -> None:
 def write_thread() -> None:
     while not stop_event.is_set():
         image = write_queue.get()
+        if isinstance(image, str) and image == STOP:
+            break
         path = write_to_fits(image)
         write_queue.task_done()
         display_queue.put(path)
@@ -438,6 +470,8 @@ def compress_thread() -> None:
 
     while not stop_event.is_set():
         path = compress_queue.get()
+        if isinstance(path, str) and path == STOP:
+            break
         compress_group_paths.append(path)
         compress_queue.task_done()
 
@@ -453,6 +487,8 @@ def display_thread() -> None:
         # image = display_queue.get()
         # show_image(image)
         path = display_queue.get()
+        if isinstance(path, str) and path == STOP:
+            break
         MAXIM_DOCUMENT.OpenFile(path)
         with display_queue.mutex:
             display_queue.queue.clear()  # Always show the latest image
