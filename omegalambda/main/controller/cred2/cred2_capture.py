@@ -89,6 +89,7 @@ FITS_HEADER: dict[str, str | float] = {  # For FITS headers
     "EXPTIME": IMAGE_STACK_TIME / TIME_SCALE_FACTOR,
     "FRAMTIME": FRAME_TIME,
     "SET-TEMP": TEMPERATURE,
+    "FILTER": "NIR",
     "DATE": None,
 }
 
@@ -198,7 +199,9 @@ def take_darks() -> None:
     take_calibration_image("dark", NUM_DARK_IMAGES, IMAGE_STACK_TIME)
     if IMAGE_STACK_TIME != FLAT_STACK_TIME:
         print(f"Taking {NUM_FLAT_IMAGES} dark frames at {FPS} FPS stacked to {FLAT_STACK_TIME / TIME_SCALE_FACTOR}s (flat exposure time).")
+        FITS_HEADER["EXPTIME"] = FLAT_STACK_TIME / TIME_SCALE_FACTOR
         take_calibration_image("dark", NUM_FLAT_IMAGES, FLAT_STACK_TIME)
+        FITS_HEADER["EXPTIME"] = IMAGE_STACK_TIME / TIME_SCALE_FACTOR
 
 
 def take_flats() -> None:
@@ -207,7 +210,9 @@ def take_flats() -> None:
     take_calibration_image("flat", NUM_FLAT_IMAGES, IMAGE_STACK_TIME)
     if IMAGE_STACK_TIME != FLAT_STACK_TIME:
         print(f"Taking {NUM_FLAT_IMAGES} flat frames at {FPS} FPS stacked to {FLAT_STACK_TIME / TIME_SCALE_FACTOR}s (flat exposure time).")
+        FITS_HEADER["EXPTIME"] = FLAT_STACK_TIME / TIME_SCALE_FACTOR
         take_calibration_image("flat", NUM_FLAT_IMAGES, FLAT_STACK_TIME)
+        FITS_HEADER["EXPTIME"] = IMAGE_STACK_TIME / TIME_SCALE_FACTOR
 
 
 def take_calibration_images() -> None:
