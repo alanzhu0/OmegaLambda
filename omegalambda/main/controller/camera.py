@@ -381,7 +381,7 @@ class NIRCamera(Camera):
 
         if num_exposures:
             time.sleep(5 + config["total_run_time_seconds"])
-            if num_exposures > 1:
+            if num_exposures == 1:
                 self.proc.send_signal(signal.SIGFPE)  # take one exposure
                 time.sleep(1 + exposure_time)
                 self.exp_done.set()

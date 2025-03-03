@@ -387,8 +387,20 @@ def take_one_capture() -> None:
         pause_captures()
     print("Taking one exposure.")
 
-    images = [get_image() for _ in range(IMAGE_STACK_SIZE)]
-    image = stack_images(images)
+    if IMAGE_STACK_SIZE > IMAGE_CHUNK_SIZE:
+        images = []
+        for _ in range(IMAGE_STACK_SIZE // IMAGE_CHUNK_SIZE):
+            images.extend(get_image() for _ in range(IMAGE_CHUNK_SIZE))
+            image = stack_images(images)
+            images.clear()
+            images.append(image)
+        remaining_images = IMAGE_STACK_SIZE % IMAGE_CHUNK_SIZE
+        if remaining_images:
+            images.extend(get_image() for _ in range(remaining_images))
+            image = stack_images(images)
+    else: 
+        images = [get_image() for _ in range(IMAGE_STACK_SIZE)]
+        image = stack_images(images)
     write_queue.put(image)
 
 
