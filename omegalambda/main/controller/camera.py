@@ -303,7 +303,7 @@ class NIRCamera(Camera):
 
     SINGLE_EXPOSURE_SIG = signal.SIGSEGV
     RESUME_SIG = signal.SIGILL
-    PAUSE_SIG = signal.SIGABRT
+    PAUSE_SIG = signal.SIGFPE
 
     """Implement the methods from the Camera class, but most of them won't do anything."""
 
@@ -355,7 +355,7 @@ class NIRCamera(Camera):
         self.exp_done.clear()
 
         if num_exposures == 1 and self.proc is not None:
-            self.proc.send_signal(self.SINGLE_EXPOSURE_SIG)  # take one exposure
+            self.send_signal(self.SINGLE_EXPOSURE_SIG)  # take one exposure
             time.sleep(1 + exposure_time)
             self.exp_done.set()
             return
@@ -386,7 +386,7 @@ class NIRCamera(Camera):
         if num_exposures:
             time.sleep(5 + config["total_run_time_seconds"])
             if num_exposures == 1:
-                self.proc.send_signal(self.SINGLE_EXPOSURE_SIG)  # take one exposure
+                self.send_signal(self.SINGLE_EXPOSURE_SIG)  # take one exposure
                 time.sleep(1 + exposure_time)
                 self.exp_done.set()
                 return
@@ -395,14 +395,14 @@ class NIRCamera(Camera):
 
     def pause_exposing(self):
         if self.proc is not None:
-            self.proc.send_signal(self.PAUSE_SIG)
+            self.send_signal(self.PAUSE_SIG)
             logging.info("NIR camera captures paused.")
         else:
             logging.warning("NIR camera is not connected. Cannot pause.")
 
     def resume_exposing(self):
         if self.proc is not None:
-            self.proc.send_signal(self.RESUME_SIG)
+            self.send_signal(self.RESUME_SIG)
             logging.info("NIR camera captures resumed.")
         else:
             logging.warning("NIR camera is not connected. Cannot resume.")
@@ -437,6 +437,18 @@ class NIRCamera(Camera):
             logging.info("NIR Camera has been disconnected")
         else:
             logging.info("NIR Camera is already disconnected")
+
+    def send_signal(self, sig):
+        if not self.proc:
+            return
+        # Copied over from the Linux subprocess.Popen.send_signal
+        self.proc.poll()
+        if self.proc.returncode is not None:
+            return
+        try:
+            os.kill(self.proc.pid, sig)
+        except ProcessLookupError:
+            pass
 
     def set_gain(self):
         pass
