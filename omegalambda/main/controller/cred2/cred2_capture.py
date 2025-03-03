@@ -90,7 +90,7 @@ FITS_HEADER: dict[str, str | float] = {  # For FITS headers
     "FRAMTIME": FRAME_TIME,
     "SET-TEMP": TEMPERATURE,
     "FILTER": "NIR",
-    "DATE": None,
+    "DATE-OBS": None,
 }
 
 ########## Helpers ##########
@@ -292,7 +292,7 @@ def median_images(images: list[np.ndarray[np.uint16]]) -> np.ndarray[np.uint16]:
 def write_to_fits(image: np.ndarray[np.uint16 | np.uint32], annotation: str = "") -> str:
     global FILENAME_NUM, FITS_HEADER
     FILENAME_NUM += 1
-    FITS_HEADER["DATE"] = datetime.now(timezone.utc).strftime('%F %T.%f')[:-3]
+    FITS_HEADER["DATE-OBS"] = datetime.now(timezone.utc).strftime('%F %T.%f')[:-3]
     header: fits.Header = fits.Header(FITS_HEADER)
     hdu: fits.PrimaryHDU = fits.PrimaryHDU(image, header=header)
     filename: str = f"{DATA_DIRECTORY}/{FILENAME_PREFIX}{str(FILENAME_NUM).zfill(FILENAME_NUM_LENGTH)}{'_' + annotation if annotation else ''}.fits"
