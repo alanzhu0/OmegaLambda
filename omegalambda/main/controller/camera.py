@@ -301,6 +301,10 @@ class NIRCamera(Camera):
     current_dir = dirname(__file__)
     exp_done = threading.Event()
 
+    SINGLE_EXPOSURE_SIG = signal.SIGSEGV
+    RESUME_SIG = signal.SIGILL
+    PAUSE_SIG = signal.SIGABRT
+
     """Implement the methods from the Camera class, but most of them won't do anything."""
 
     def check_connection(self):
@@ -351,7 +355,7 @@ class NIRCamera(Camera):
         self.exp_done.clear()
 
         if num_exposures == 1 and self.proc is not None:
-            self.proc.send_signal(signal.SIGFPE)  # take one exposure
+            self.proc.send_signal(self.SINGLE_EXPOSURE_SIG)  # take one exposure
             time.sleep(1 + exposure_time)
             self.exp_done.set()
             return
@@ -382,7 +386,7 @@ class NIRCamera(Camera):
         if num_exposures:
             time.sleep(5 + config["total_run_time_seconds"])
             if num_exposures == 1:
-                self.proc.send_signal(signal.SIGFPE)  # take one exposure
+                self.proc.send_signal(self.SINGLE_EXPOSURE_SIG)  # take one exposure
                 time.sleep(1 + exposure_time)
                 self.exp_done.set()
                 return
@@ -391,14 +395,14 @@ class NIRCamera(Camera):
 
     def pause_exposing(self):
         if self.proc is not None:
-            self.proc.send_signal(signal.SIGABRT)
+            self.proc.send_signal(self.PAUSE_SIG)
             logging.info("NIR camera captures paused.")
         else:
             logging.warning("NIR camera is not connected. Cannot pause.")
 
     def resume_exposing(self):
         if self.proc is not None:
-            self.proc.send_signal(signal.SIGILL)
+            self.proc.send_signal(self.RESUME_SIG)
             logging.info("NIR camera captures resumed.")
         else:
             logging.warning("NIR camera is not connected. Cannot resume.")
